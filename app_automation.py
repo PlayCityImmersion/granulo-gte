@@ -4,184 +4,199 @@ import numpy as np
 import time
 import random
 from datetime import datetime
-import re
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - CEO Crawler & Engine")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console CEO V2")
 
-# --- 1. BIBLIOTHÈQUE DE CONTENU (SIMULATION DU WEB) ---
-# Ce sont les types d'exercices que le robot "trouverait" sur un site comme APMEP
-WEB_CONTENT_DB = [
-    # TERMINALE - ANALYSE
-    {"txt": "Calculer la limite de la fonction f en +infini", "chap": "Limites", "niv": "TERMINALE", "mat": "MATHS", "trigs": ["calculer", "limite"], "frt": "Valeur Numérique / Exacte"},
-    {"txt": "Démontrer par récurrence que la suite est bornée", "chap": "Suites", "niv": "TERMINALE", "mat": "MATHS", "trigs": ["démontrer", "récurrence"], "frt": "Preuve Logique (Bloc Rédactionnel)"},
-    {"txt": "Étudier les variations de la fonction f sur I", "chap": "Dérivation", "niv": "TERMINALE", "mat": "MATHS", "trigs": ["étudier", "variations"], "frt": "Tableau de Signes + Variations"},
-    {"txt": "Déterminer une primitive F de la fonction f", "chap": "Intégration", "niv": "TERMINALE", "mat": "MATHS", "trigs": ["déterminer", "primitive"], "frt": "Expression Algébrique F(x)"},
-    # TERMINALE - GÉOMÉTRIE
-    {"txt": "Démontrer que la droite (D) est orthogonale au plan (P)", "chap": "Espace", "niv": "TERMINALE", "mat": "MATHS", "trigs": ["démontrer", "orthogonal"], "frt": "Preuve Produit Scalaire"},
-    {"txt": "Déterminer une représentation paramétrique de la droite", "chap": "Espace", "niv": "TERMINALE", "mat": "MATHS", "trigs": ["déterminer", "paramétrique"], "frt": "Système d'équations {x,y,z}"},
-    # PREMIÈRE
-    {"txt": "Calculer les racines du trinôme du second degré", "chap": "Second Degré", "niv": "PREMIERE", "mat": "MATHS", "trigs": ["calculer", "racines"], "frt": "Ensemble S = {x1, x2}"},
-    {"txt": "Déterminer le produit scalaire des vecteurs u et v", "chap": "Produit Scalaire", "niv": "PREMIERE", "mat": "MATHS", "trigs": ["déterminer", "produit scalaire"], "frt": "Valeur Réelle"},
-]
+# --- 1. BIBLIOTHÈQUE DE CONTENU (GÉNÉRATEUR DE VARIANTES) ---
+# On simule ici que pour une même compétence, les phrases changent légèrement d'une année à l'autre.
+CONTENT_GENERATOR = {
+    "DERIVATION": [
+        "Étudier les variations de la fonction f sur l'intervalle I",
+        "Dresser le tableau de variations complet de g",
+        "Déterminer les variations de la fonction h",
+        "Justifier le sens de variation de la suite (Un)"
+    ],
+    "LIMITES": [
+        "Calculer la limite de f en +infini",
+        "Déterminer la limite de la suite (Un) quand n tend vers l'infini",
+        "Quelle est la limite de f en 0 ?",
+        "En déduire l'existence d'une asymptote"
+    ],
+    "GEOMETRIE": [
+        "Démontrer que la droite (D) est orthogonale au plan (P)",
+        "Prouver que les vecteurs u et v sont orthogonaux",
+        "Déterminer une représentation paramétrique de la droite",
+        "Vérifier que le point A appartient au plan (P)"
+    ],
+    "INTEGRATION": [
+        "Déterminer une primitive F de f sur R",
+        "Calculer l'intégrale I entre a et b",
+        "Montrer que F est une primitive de f",
+        "En déduire l'aire sous la courbe"
+    ]
+}
 
-# --- 2. FONCTIONS MOTEUR (NOYAU SMAXIA) ---
+# --- 2. FONCTIONS MOTEUR ---
 
-def simulate_crawl(url, n_target):
-    """Simule la récupération de N sujets depuis une URL"""
-    crawled = []
+def simulate_smart_crawl(url, n_sujets):
+    """
+    Simule la récupération de N sujets.
+    Chaque sujet contient entre 3 et 5 Qi (Exercices).
+    Cela rend N_total réaliste (N_sujets * 4 approx).
+    """
+    crawled_atoms = []
     progress = st.progress(0)
     status = st.empty()
     
-    for i in range(n_target):
-        # Simulation d'attente réseau
-        time.sleep(0.02) 
-        progress.progress((i+1)/n_target)
-        status.text(f"Scraping : {url}/sujet_bac_{2024-i%10}_{i}.pdf ... OK")
+    total_steps = n_sujets
+    
+    for i in range(n_sujets):
+        # Simulation visuelle
+        if i % 5 == 0: # On met à jour tous les 5 pour aller vite
+            progress.progress((i+1)/total_steps)
+            status.text(f"Scraping : {url}/sujet_bac_{2024-i%8}_{i}.pdf ... Extraction Qi...")
         
-        # On pioche un contenu aléatoire pour simuler la lecture du PDF
-        content = random.choice(WEB_CONTENT_DB)
+        # GÉNÉRATION DU CONTENU DU SUJET (3 à 5 exercices par sujet)
+        nb_exos = random.randint(3, 5)
+        year = random.choice(range(2016, 2025))
         
-        # On génère des métadonnées réalistes
-        year = random.choice(range(2015, 2025))
-        
-        crawled.append({
-            "ID_Source": f"DOC_{i:04d}",
-            "Source_Url": f"{url}/doc_{i}.pdf",
-            "Année": year,
-            "Niveau": content["niv"],
-            "Matière": content["mat"],
-            "Chapitre": content["chap"],
-            "Qi_Brut": content["txt"],
-            "Triggers": content["trigs"],
-            "FRT_Type": content["frt"]
-        })
-        
+        for _ in range(nb_exos):
+            # Choix d'un thème au hasard
+            theme = random.choice(list(CONTENT_GENERATOR.keys()))
+            # Choix d'une formulation (Variante)
+            raw_text = random.choice(CONTENT_GENERATOR[theme])
+            
+            # Mapping simulé
+            chapitre_map = {
+                "DERIVATION": "Dérivation", "LIMITES": "Limites", 
+                "GEOMETRIE": "Espace", "INTEGRATION": "Intégration"
+            }
+            
+            crawled_atoms.append({
+                "ID_Sujet": f"SUJET_{i:03d}",
+                "Année": year,
+                "Niveau": "TERMINALE", # Fixé pour l'exemple
+                "Matière": "MATHS",
+                "Chapitre": chapitre_map[theme],
+                "Qi_Brut": raw_text,
+                "Déclencheur": raw_text.split()[0].upper() # Ex: CALCULER, ETUDIER
+            })
+            
     progress.empty()
     status.empty()
-    return pd.DataFrame(crawled)
+    return pd.DataFrame(crawled_atoms)
 
-def calculate_score_f2(df_data):
-    """Calcule le Score F2 et toutes les variables pour chaque QC identifiée"""
+def process_engine_logic(df_atoms):
+    """
+    Calcule les invariants QC et les scores.
+    """
+    N_total_global = len(df_atoms) # C'est le VRAI volume d'atomes (ex: 85)
+    current_year = datetime.now().year
     
-    # 1. Regroupement par QC (Invariant)
-    grouped = df_data.groupby(["Niveau", "Matière", "Chapitre", "Qi_Brut"]).agg({
-        "ID_Source": "count",      # n_q (Fréquence)
-        "Année": "max",            # Pour Récence
-        "Triggers": "first",
-        "FRT_Type": "first"
+    # 1. Normalisation QC (On regroupe les variantes sous une même bannière "COMMENT")
+    # Dans la vraie vie, c'est le moteur sémantique. Ici on simule par string matching simple.
+    df_atoms["QC_Tag"] = df_atoms["Qi_Brut"].apply(lambda x: "COMMENT " + " ".join(x.split()[:4]) + "...")
+    
+    # 2. Agrégation
+    grouped = df_atoms.groupby(["Niveau", "Chapitre", "QC_Tag"]).agg({
+        "Qi_Brut": list,           # On garde la LISTE des sources (Preuve)
+        "ID_Sujet": "count",       # n_q (Fréquence)
+        "Année": "max"             # Récence max
     }).reset_index()
     
     results = []
-    current_year = datetime.now().year
-    N_total_global = len(df_data) # Volume total injecté
     
     for idx, row in grouped.iterrows():
-        # --- CALCUL VARIABLES ---
-        n_q = row["ID_Source"]
+        n_q = row["ID_Sujet"]
+        qi_list = row["Qi_Brut"]
         
-        # Tau (Récence)
+        # Variables SMAXIA
         delta_t = (current_year - row["Année"])
-        tau_rec = delta_t if delta_t > 0 else 0.5 # Année courante
+        tau = delta_t if delta_t > 0 else 0.5
+        alpha = 5.0
         
-        # Alpha (Coeff Récence fixe pour test)
-        alpha = 5.0 
+        # Psi moyen des phrases sources
+        psi_avg = np.mean([len(set(s.split()))/len(s.split()) for s in qi_list])
         
-        # Psi (Densité)
-        words = row["Qi_Brut"].split()
-        psi = len(set(words)) / len(words)
-        
-        # Sigma (Similarité/Bruit - simplifié ici à 0 pour l'exemple)
-        sigma = 0.0
-        
-        # --- ÉQUATION ---
-        # Score = (n_q / N_tot) * [1 + alpha/tau] * psi * (1-sigma)
+        # Calcul Score
         freq = n_q / N_total_global
-        recency = 1 + (alpha / max(tau_rec, 1)) # Sécurité div/0
+        recency = 1 + (alpha / max(tau, 1))
         
-        score_f2 = freq * recency * psi * 100
-        
-        # Création QC Format SMAXIA
-        qc_name = f"COMMENT {row['Qi_Brut']}..."
+        score = freq * recency * psi_avg * 100
         
         results.append({
             "NIVEAU": row["Niveau"],
-            "MATIERE": row["Matière"],
             "CHAPITRE": row["Chapitre"],
-            "QC_INVARIANTE": qc_name,
-            "FRT": row["FRT_Type"],
-            # VARIABLES DE PREUVE
-            "Score_F2": score_f2,
+            "QC_CIBLE": row["QC_Tag"],
+            "SCORE_F2": score,
             "n_q": n_q,
             "N_tot": N_total_global,
-            "Tau_rec": tau_rec,
-            "Psi": round(psi, 2),
-            "Sigma": sigma,
-            "Nb_Qi_Source": n_q # Nombre de Qi qui pointent vers cette QC
+            "Tau": tau,
+            "Psi": round(psi_avg, 2),
+            "SOURCES_QI": qi_list # La liste pour l'audit
         })
         
-    return pd.DataFrame(results).sort_values(by=["NIVEAU", "CHAPITRE", "Score_F2"], ascending=[True, True, False])
+    return pd.DataFrame(results).sort_values(by="SCORE_F2", ascending=False)
 
-# --- INTERFACE CEO ---
-st.title("🚀 SMAXIA - Automation Console (Source -> Engine -> Livrable)")
+# --- INTERFACE ---
+st.title("🚀 SMAXIA - Console CEO V2 (Audit Ready)")
 
+# 1. INPUTS
 with st.container():
-    st.markdown("### 1. Paramètres d'Injection")
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        url = st.text_input("URL Source", value="https://www.apmep.fr/", placeholder="ex: apmep.fr")
-    with col2:
-        n_sujets = st.number_input("Nombre de Sujets (N)", min_value=10, max_value=1000, value=50, step=10)
-    with col3:
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        url = st.text_input("URL Cible", value="https://www.apmep.fr/")
+    with c2:
+        n_sujets = st.number_input("Nombre de Sujets PDF", value=20, step=5)
+    with c3:
         st.write("")
-        start = st.button("LANCER L'EXTRACTION", type="primary")
+        run = st.button("LANCER L'ANALYSE", type="primary")
 
-if start:
+if run:
     st.divider()
     
-    # 1. CRAWLING
-    st.subheader("2. Journal d'Exécution")
-    with st.spinner(f"Récupération de {n_sujets} sujets sur {url}..."):
-        df_raw = simulate_crawl(url, n_sujets)
-    st.success(f"✅ Extraction terminée : {len(df_raw)} Qi brutes extraites.")
+    # 2. PROCESS
+    with st.spinner("Simulation Extraction & Atomisation..."):
+        df_raw = simulate_smart_crawl(url, n_sujets)
+        df_final = process_engine_logic(df_raw)
     
-    # 2. CALCUL MOTEUR
-    df_livrable = calculate_score_f2(df_raw)
+    # 3. GLOBAL STATS (KPIs)
+    st.subheader("📊 Métriques Globales")
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Sujets Traités", n_sujets)
+    k2.metric("N_total (Atomes Qi)", len(df_raw), delta="Volume de calcul")
+    k3.metric("QC Identifiées", len(df_final))
     
-    # 3. AFFICHAGE LIVRABLE
     st.divider()
-    st.header("📦 3. LIVRABLE FINAL (Classé par Hiérarchie)")
     
-    # Navigation par Niveau
-    niveaux = df_livrable["NIVEAU"].unique()
-    tabs = st.tabs(list(niveaux))
+    # 4. LIVRABLE DÉTAILLÉ
+    st.header("📦 Livrable SMAXIA (Classé par Pertinence)")
     
-    for i, niv in enumerate(niveaux):
+    # Onglets par Chapitre (plus propre que tout d'un coup)
+    chapitres = df_final["CHAPITRE"].unique()
+    tabs = st.tabs(list(chapitres))
+    
+    for i, chap in enumerate(chapitres):
         with tabs[i]:
-            df_niv = df_livrable[df_livrable["NIVEAU"] == niv]
+            df_chap = df_final[df_final["CHAPITRE"] == chap]
             
-            # Boucle par Chapitre
-            chapitres = df_niv["CHAPITRE"].unique()
-            for chap in chapitres:
-                st.markdown(f"#### 📘 {chap}")
-                
-                df_chap = df_niv[df_niv["CHAPITRE"] == chap]
-                
-                # TABLEAU COMPLET AVEC VARIABLES
-                st.dataframe(
-                    df_chap[[
-                        "QC_INVARIANTE", 
-                        "Score_F2", 
-                        "n_q", "N_tot", "Tau_rec", "Psi", "Sigma", 
-                        "FRT"
-                    ]],
-                    column_config={
-                        "QC_INVARIANTE": st.column_config.TextColumn("Question Clé (Invariant)", width="large"),
-                        "Score_F2": st.column_config.ProgressColumn("Pertinence F2", format="%.2f", min_value=0, max_value=max(df_livrable["Score_F2"])),
-                        "n_q": st.column_config.NumberColumn("n_q", format="%d"),
-                        "Tau_rec": st.column_config.NumberColumn("τ (Ans)", format="%.1f"),
-                        "FRT": st.column_config.TextColumn("FRT (Type Réponse)", width="medium"),
-                    },
-                    use_container_width=True,
-                    hide_index=True
-                )
+            for index, row in df_chap.iterrows():
+                # AFFICHAGE CARTE QC
+                with st.container():
+                    # En-tête de la QC
+                    col_score, col_qc = st.columns([1, 4])
+                    
+                    with col_score:
+                        st.metric("Score F2", f"{row['SCORE_F2']:.1f}")
+                    
+                    with col_qc:
+                        st.subheader(f"🗝️ {row['QC_CIBLE']}")
+                        st.caption(f"Fréquence: **{row['n_q']}** / {row['N_tot']} | Récence: **{row['Tau']} ans** | Densité Ψ: **{row['Psi']}**")
+                    
+                    # PREUVE (EXPANDER) - C'est ici qu'on voit les Qi
+                    with st.expander(f"🔎 VOIR LES {len(row['SOURCES_QI'])} PHRASES SOURCES (Preuve de Mapping)"):
+                        for source in row['SOURCES_QI']:
+                            st.markdown(f"- 📄 *{source}*")
+                            
+                    st.markdown("---")
