@@ -8,12 +8,12 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sympy import sympify
 
 # =============================================================================
-# [cite_start]CONSTANTES SECRETES (PARTIE 6 - DOC A2) [cite: 187]
+# CONSTANTES SECRETES (PARTIE 6 - DOC A2)
 # =============================================================================
-[cite_start]EPSILON = 0.1          # Constante de stabilité [cite: 83]
-[cite_start]SIGMA_SEUIL = 0.85     # Seuil anti-redondance [cite: 105]
-[cite_start]ALPHA_DYNAMIQUE = 30   # Paramètre de récence [cite: 107]
-[cite_start]NB_QC_TARGET = 15      # Invariant Axiomatique [cite: 568]
+EPSILON = 0.1          # Constante de stabilité
+SIGMA_SEUIL = 0.85     # Seuil anti-redondance
+ALPHA_DYNAMIQUE = 30   # Paramètre de récence
+NB_QC_TARGET = 15      # Invariant Axiomatique
 
 # =============================================================================
 # STRUCTURES DE DONNÉES INVARIANTES (DOC A3)
@@ -22,14 +22,14 @@ from sympy import sympify
 @dataclass
 class TriggerSignature:
     """
-    [cite_start]AXIOME DELTA : Signature (V, O, C) [cite: 792, 955]
+    AXIOME DELTA : Signature (V, O, C)
     """
     verb: str       # V: Action (Calculer, Dériver...)
     obj: str        # O: Objet Math (Fonction, Suite...)
     context: str    # C: Contexte (Physique, Eco...)
 
     def get_hash(self) -> str:
-        [cite_start]"""Hachage Atomique Unique [cite: 1106, 1298]"""
+        """Hachage Atomique Unique"""
         raw = f"{self.verb}|{self.obj}|{self.context}".lower().strip()
         return hashlib.sha256(raw.encode()).hexdigest()
 
@@ -37,14 +37,14 @@ class TriggerSignature:
 class QuestionCle:
     """
     L'Invariant QC. 
-    [cite_start]Contient le Noyau Psi et la Variabilité Sigma[cite: 1061].
+    Contient le Noyau Psi et la Variabilité Sigma.
     """
     id: str
     signature: TriggerSignature
-    [cite_start]psi_score: float        # F1: Densité Cognitive [cite: 75]
+    psi_score: float        # F1: Densité Cognitive
     sigma_class: int        # Difficulté (1-4)
     canonical_text: str
-    [cite_start]is_black_swan: bool = False # QC #15 [cite: 1083]
+    is_black_swan: bool = False # QC #15
     covered_qi_count: int = 0
     
     def to_dict(self):
@@ -67,7 +67,7 @@ class GranuloEngine:
 
     def compute_psi_f1(self, steps_ari: int, delta_c: float = 1.0) -> float:
         """
-        [cite_start]FORMULE F1 : Poids Prédictif Purifié [cite: 80]
+        FORMULE F1 : Poids Prédictif Purifié
         Psi_q = delta_c * (epsilon + Sum(Tj))
         """
         sum_tj = steps_ari * 0.5 # Simulation pondération étapes
@@ -77,8 +77,6 @@ class GranuloEngine:
     def ingest_qi(self, text: str, source_type: str):
         """
         Simule l'extraction (V,O,C) depuis le texte brut.
-        Dans la version PROD, c'est un modèle NLP Fine-Tuned.
-        Pour le test GTE, on utilise une heuristique avancée.
         """
         # Simulation d'extraction pour le test
         v, o, c = "Calculer", "Inconnu", "Standard"
@@ -139,7 +137,7 @@ class GranuloEngine:
             qc_list.append(qc)
             counter += 1
 
-        # [cite_start]3. Injection QC #15 (Transposition) [cite: 1226]
+        # 3. Injection QC #15 (Transposition)
         # Bouclier Anti-Black Swan
         qc15 = QuestionCle(
             id="QC-15-META",
@@ -160,7 +158,7 @@ class GranuloEngine:
 
     def check_coverage(self, qc_list: List[QuestionCle]) -> dict:
         """
-        [cite_start]AUDIT BOOLEEN [cite: 1324]
+        AUDIT BOOLEEN
         Vérifie si 100% des Qi ont une QC.
         """
         total_qi = len(self.raw_atoms)
@@ -172,5 +170,5 @@ class GranuloEngine:
             "total_qi": total_qi,
             "covered": covered_qi,
             "rate": coverage_rate,
-            [cite_start]"is_valid": coverage_rate >= 95.0 # Seuil doc A3 [cite: 1321]
+            "is_valid": coverage_rate >= 95.0 # Seuil doc A3
         }
