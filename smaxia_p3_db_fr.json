@@ -1,0 +1,59 @@
+[
+  {
+    "id": "MATH-ANA-03",
+    "canonical_text": "Comment calculer la valeur exacte d'une intégrale définie via une primitive ?",
+    "operator_tag": "INTÉGRALE",
+    "triggers": [
+      "calculer l'intégrale", 
+      "valeur exacte", 
+      "primitive de", 
+      "\\\\int_",
+      "aire sous la courbe"
+    ]
+  },
+  {
+    "id": "MATH-ANA-01",
+    "canonical_text": "Comment lever une indétermination pour trouver la limite d'une fonction ?",
+    "operator_tag": "LIMITE",
+    "triggers": [
+      "limite en", 
+      "indétermin", 
+      "asymptot", 
+      "tend vers"
+    ]
+  },
+  {
+    "id": "MATH-ALG-05",
+    "canonical_text": "Comment résoudre une équation du second degré dans C (Complexes) ?",
+    "operator_tag": "COMPLEXE",
+    "triggers": [
+      "résoudre dans c", 
+      "solution complexe", 
+      "discriminant négatif", 
+      "z\\^2", 
+      "affixe"
+    ]
+  },
+  {
+    "id": "MATH-VEC-02",
+    "canonical_text": "Comment démontrer que trois points sont alignés ou deux vecteurs colinéaires ?",
+    "operator_tag": "VECTEUR",
+    "triggers": [
+      "points alignés", 
+      "vecteurs colinéaires", 
+      "parallèl", 
+      "coordonnées"
+    ]
+  },
+  {
+    "id": "MATH-PROB-01",
+    "canonical_text": "Comment calculer une probabilité conditionnelle P_B(A) ?",
+    "operator_tag": "PROBABILITÉ",
+    "triggers": [
+      "sachant que", 
+      "probabilité conditionnelle", 
+      "p_b\\(a\\)", 
+      "arbre pondéré"
+    ]
+  }
+]
