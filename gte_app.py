@@ -4,177 +4,165 @@ import pdfplumber
 import re
 import numpy as np
 
-# --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Moteur Méthodologique V3")
+# --- CONFIGURATION SMAXIA ---
+st.set_page_config(layout="wide", page_title="SMAXIA - Audit Console P6")
 
-# --- 1. MOTEUR D'EXTRACTION (PDF) ---
-def extract_granules_from_pdf(uploaded_file):
-    text_content = ""
-    with pdfplumber.open(uploaded_file) as pdf:
+# --- 1. DÉFINITION DES TRIGGERS (LISTE FERMÉE SMAXIA) ---
+# Seuls ces 5 déclencheurs existent. Tout le reste est un angle mort.
+AUTHORIZED_TRIGGERS = {
+    "CALCULER":   {"ID": "T1_RES", "Cat": "RÉSOLUTION", "Poids": 1.2},
+    "DÉTERMINER": {"ID": "T1_RES", "Cat": "RÉSOLUTION", "Poids": 1.2},
+    "DÉMONTRER":  {"ID": "T2_DEM", "Cat": "DÉMONSTRATION", "Poids": 1.5},
+    "MONTRER":    {"ID": "T2_DEM", "Cat": "DÉMONSTRATION", "Poids": 1.5},
+    "JUSTIFIER":  {"ID": "T3_ARG", "Cat": "ARGUMENTATION", "Poids": 1.1},
+    "INTERPRÉTER":{"ID": "T4_INT", "Cat": "INTERPRÉTATION", "Poids": 1.3},
+    "TRACER":     {"ID": "T5_GRA", "Cat": "GRAPHIQUE",      "Poids": 1.0}
+}
+
+# --- 2. EXTRACTION (MOTEUR GRANULO) ---
+def extract_qi_from_pdf(file):
+    text = ""
+    with pdfplumber.open(file) as pdf:
         for page in pdf.pages:
-            extracted = page.extract_text()
-            if extracted:
-                text_content += extracted + "\n"
-    
-    # Nettoyage basique
-    text_content = text_content.replace('\n', ' ')
-    
-    # DÉCOUPAGE INTELLIGENT PAR INSTRUCTION
-    # On cherche les phrases qui contiennent des verbes d'action clés
-    # Cela permet d'isoler les "Atomes de savoir"
-    sentences = re.split(r'[.;?!]', text_content)
-    
-    granules = []
-    for sent in sentences:
-        sent = sent.strip()
-        # On ne garde que les phrases qui ont du sens (longueur > 20 chars)
-        if len(sent) > 20:
-            granules.append(sent)
-                
-    return granules
+            extract = page.extract_text()
+            if extract: text += extract + "\n"
+    text = text.replace('\n', ' ')
+    # Découpage par phrase pour atomisation
+    raw_segments = re.split(r'[.;?!]', text)
+    return [s.strip() for s in raw_segments if len(s) > 15]
 
-# --- 2. CALCULATEUR DÉTERMINISTE (PSI & SCORE) ---
-def calculate_metrics(text):
-    stopwords = set(['le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'ou', 'est', 'sont', 'a', 'par', 'pour', 'dans', 'sur'])
-    words = [w.lower() for w in re.findall(r'\w+', text)]
-    meaningful_words = [w for w in words if w not in stopwords and len(w) > 2]
+# --- 3. CALCULATEUR DÉTERMINISTE (FORMULE SMAXIA) ---
+def compute_smaxia_variables(segment, verb_found):
+    # --- A. VARIABLES PRIMAIRES ---
+    words = [w for w in re.findall(r'\w+', segment.lower()) if len(w) > 3]
     
-    if len(words) == 0: return 0, 0
+    # n_q (Nombre de termes sémantiques dans le Qi)
+    n_q = len(words)
     
-    # F1 : PSI (Densité d'information)
-    psi = len(set(meaningful_words)) / len(words)
+    # Psi (Potentiel Sémantique - Densité)
+    unique_words = set(words)
+    Psi = len(unique_words) / n_q if n_q > 0 else 0
     
-    # F2 : Score de Pertinence SMAXIA
-    # Bonus si la phrase contient des mots clés académiques
-    keywords = ['intégrale', 'fonction', 'dérivée', 'suite', 'probabilité', 'guerre', 'traité', 'atome', 'molécule']
-    bonus = sum(1 for w in meaningful_words if w in keywords)
-    score = (psi * 10) + (bonus * 0.5)
+    # Alpha (Facteur de Contexte / Recouvrement)
+    # Simulation: on regarde si des mots clés du chapitre sont présents
+    keywords = ['fonction', 'intégrale', 'probabilité', 'suite', 'guerre', 'loi']
+    matches = sum(1 for w in words if w in keywords)
+    Alpha = matches * 0.5 
     
-    return round(psi, 3), round(score, 2)
+    # Tau_rec (Constante de récurrence - fixée pour le test)
+    Tau_rec = 5.0 
+    
+    # Sigma (Facteur de Pénalité / Bruit)
+    # On pénalise si le texte contient des "mots polluants" (ex: "candidat", "page", "points")
+    noise_words = ['candidat', 'points', 'feuille', 'annexe', 'sujet']
+    noise_count = sum(1 for w in words if w in noise_words)
+    Sigma = noise_count * 0.1 # 10% de pénalité par mot de bruit
+    if Sigma > 0.9: Sigma = 0.9 # Plafond
 
-# --- 3. TRANSFORMATION EN QC SMAXIA ("COMMENT...") ---
-def transform_to_smaxia_qc(raw_text):
-    # Dictionnaire de transformation : Verbe Impératif -> Formule Méthodologique
-    transformations = {
-        r"calculer": "COMMENT CALCULER",
-        r"déterminer": "COMMENT DÉTERMINER",
-        r"démontrer": "COMMENT DÉMONTRER",
-        r"montrer": "COMMENT MONTRER",
-        r"justifier": "COMMENT JUSTIFIER",
-        r"analyser": "COMMENT ANALYSER",
-        r"résoudre": "COMMENT RÉSOUDRE",
-        r"tracer": "COMMENT TRACER",
-        r"étudier": "COMMENT ÉTUDIER"
+    # --- B. FORMULE FINALE (D'après votre image) ---
+    # Score = (Base) * (1 + Alpha/Tau) * Psi * (1 - Sigma)
+    # Note: N_total est normalisé à 1 ici pour l'échelle locale
+    
+    trigger_weight = AUTHORIZED_TRIGGERS[verb_found]["Poids"]
+    
+    Score_F2 = (n_q / 20) * (1 + (Alpha / Tau_rec)) * Psi * (1 - Sigma) * trigger_weight
+    
+    return {
+        "n_q": n_q,
+        "Psi": round(Psi, 3),
+        "Alpha": Alpha,
+        "Sigma": round(Sigma, 2),
+        "Score_F2": round(Score_F2, 4)
     }
+
+# --- 4. PROCESSEUR PRINCIPAL ---
+def run_p6_audit(segments):
+    audit_data = []
     
-    detected_qc = None
-    trigger_verb = None
-    
-    text_lower = raw_text.lower()
-    
-    for pattern, prefix in transformations.items():
-        if pattern in text_lower:
-            trigger_verb = pattern
-            # On nettoie le texte pour l'affichage propre
-            # Ex: "Calculer l'intégrale..." -> "l'intégrale..."
-            # On cherche la position du verbe et on prend la suite
-            match = re.search(pattern, text_lower)
-            if match:
-                start_idx = match.start()
-                end_idx = match.end()
-                # Le corps du concept est ce qui suit le verbe
-                concept_body = raw_text[end_idx:].strip()
-                # Nettoyage final (supprimer points finaux etc)
-                concept_body = concept_body.rstrip('.;?!')
-                
-                detected_qc = f"{prefix} {concept_body}"
+    for segment in segments:
+        segment_upper = segment.upper()
+        detected_trigger = None
+        trigger_info = None
+        
+        # 1. IDENTIFICATION DU TRIGGER (STRICT)
+        for verb, info in AUTHORIZED_TRIGGERS.items():
+            if verb in segment_upper:
+                detected_trigger = verb
+                trigger_info = info
                 break
-    
-    return detected_qc, trigger_verb
-
-# --- 4. EXÉCUTION DU MOTEUR ---
-def process_granulo_engine(granules):
-    results = []
-    
-    for segment in granules:
-        psi, score = calculate_metrics(segment)
         
-        # TRANSFORMATION EN QC
-        smaxia_qc, trigger = transform_to_smaxia_qc(segment)
-        
-        # LOGIQUE DE VALIDATION (P6)
-        # 1. Il faut avoir détecté un verbe d'action SMAXIA
-        # 2. Le score F2 doit être suffisant (> 2.0)
-        # 3. Le texte ne doit pas être trop court (bruit)
-        
-        verdict = "FAIL"
-        motif = "Hors Périmètre"
-        
-        if smaxia_qc:
-            if score > 1.5: # Seuil de qualité SMAXIA
-                verdict = "PASS"
-                motif = ""
-            else:
-                motif = "Contenu Pauvre (F2 faible)"
-        else:
-            motif = "Pas de Verbe Action (Non Méthodologique)"
-
-        # On n'ajoute au tableau que ce qui est potentiellement pertinent (ou les gros rejets pour audit)
-        if verdict == "PASS" or (verdict == "FAIL" and score > 1.0):
-            results.append({
-                "ID_Qi": hash(segment) % 10000, # ID court pour lecture
-                "QC_SMAXIA (Format Cible)": smaxia_qc if smaxia_qc else "---",
-                "Source (Qi Brut)": segment[:80] + "...",
-                "Déclencheur": trigger.upper() if trigger else "AUCUN",
-                "F1 (Densité)": psi,
-                "F2 (Pertinence)": score,
-                "VERDICT": verdict
+        # 2. CALCUL SI TRIGGER VALIDE
+        if detected_trigger:
+            # Nettoyage pour le QC
+            qc_text = f"COMMENT {segment.strip()}"
+            
+            # Appel des variables mathématiques
+            vars = compute_smaxia_variables(segment, detected_trigger)
+            
+            status = "PASS" if vars["Score_F2"] > 0.4 else "FAIL_SCORE" # Seuil de qualité
+            
+            audit_data.append({
+                "Statut": status,
+                "ID_Trigger": trigger_info["ID"],
+                "Déclencheur": detected_trigger,
+                "QC_Générée (Cible)": qc_text,
+                "Qi_Source (Mapping)": segment[:60] + "...",
+                # --- VARIABLES VISIBLES POUR ANALYSE ---
+                "n_q (Vol)": vars["n_q"],
+                "Psi (Dens)": vars["Psi"],
+                "Alpha (Ctx)": vars["Alpha"],
+                "Sigma (Bruit)": vars["Sigma"],
+                "SCORE F2": vars["Score_F2"]
             })
-        
-    return pd.DataFrame(results)
+        else:
+            # REJETÉ (Pas de trigger valide)
+            pass 
+            
+    return pd.DataFrame(audit_data)
 
 # --- INTERFACE ---
-st.title("🛡️ SMAXIA - Moteur Granulo V3 (Strict 'COMMENT')")
-st.markdown("""
-**Règle d'Or :** Une QC SMAXIA ne demande pas de *faire*, elle explique *comment faire*.
-toute QC doit commencer par **COMMENT**.
-""")
+st.title("🛡️ SMAXIA PROD - Rapport de Validation P6")
+st.markdown("### Contrôle des Variables Sémantiques & Booléennes")
 
-uploaded_files = st.file_uploader("Injecter PDF (Sujets Examens)", type=['pdf'], accept_multiple_files=True)
+uploaded_files = st.file_uploader("Injecter PDF Sujets", type=['pdf'], accept_multiple_files=True)
 
 if uploaded_files:
-    all_raw_data = []
-    
-    with st.status("Analyse Sémantique et Structuration...", expanded=True):
-        for file in uploaded_files:
-            st.write(f"Lecture de {file.name}...")
-            raw_segments = extract_granules_from_pdf(file)
-            all_raw_data.extend(raw_segments)
-            
-    if all_raw_data:
-        df_result = process_granulo_engine(all_raw_data)
+    all_segments = []
+    for f in uploaded_files:
+        all_segments.extend(extract_qi_from_pdf(f))
         
-        if not df_result.empty:
-            st.divider()
+    if all_segments:
+        df = run_p6_audit(all_segments)
+        
+        if not df.empty:
+            # SÉPARATION PASS / FAIL
+            df_pass = df[df["Statut"] == "PASS"]
+            df_fail = df[df["Statut"] == "FAIL_SCORE"]
             
-            # FILTRE D'AFFICHAGE : On montre d'abord les PASS (les QC Valides)
-            st.subheader("✅ QC SMAXIA GÉNÉRÉES (Prêtes pour P6)")
-            df_pass = df_result[df_result['VERDICT'] == "PASS"]
+            # --- VUE 1 : LE RAPPORT DE VALIDATION (LES PASS) ---
+            st.success(f"✅ {len(df_pass)} QC Validées et Prêtes pour P6")
             
-            if not df_pass.empty:
-                st.dataframe(
-                    df_pass[['QC_SMAXIA (Format Cible)', 'F2 (Pertinence)', 'Déclencheur', 'Source (Qi Brut)']],
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.warning("Aucune QC valide trouvée. Vérifiez que le PDF contient des questions type 'Calculer', 'Démontrer'...")
-
-            # ZONE DE REJET (POUR AUDIT)
-            with st.expander("Voir les éléments rejetés (Hors structure 'COMMENT')"):
-                st.dataframe(df_result[df_result['VERDICT'] == "FAIL"])
-                
+            st.markdown("#### Détail des Variables de Calcul (Preuve de Score)")
+            
+            # Configuration de l'affichage pour la lisibilité
+            st.dataframe(
+                df_pass,
+                column_config={
+                    "Statut": st.column_config.TextColumn("Verdict", width="small"),
+                    "ID_Trigger": st.column_config.TextColumn("Ref Trig", width="small"),
+                    "SCORE F2": st.column_config.ProgressColumn("Score F2", min_value=0, max_value=2, format="%.4f"),
+                    "Sigma (Bruit)": st.column_config.NumberColumn("Sigma (Penalité)", format="%.2f"),
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # --- VUE 2 : ANALYSE DES REJETS (FAIL) ---
+            if not df_fail.empty:
+                st.markdown("---")
+                st.error(f"❌ {len(df_fail)} QC Rejetées (Score Insuffisant - Voir Sigma/Psi)")
+                with st.expander("Voir les éléments rejetés pour calibration"):
+                    st.dataframe(df_fail, use_container_width=True)
+            
         else:
-            st.error("Le PDF semble contenir du texte, mais aucune structure méthodologique n'a été détectée.")
-    else:
-        st.warning("PDF vide ou illisible.")
+            st.warning("Aucun Trigger SMAXIA (T1-T5) détecté dans ces documents.")
