@@ -1,215 +1,142 @@
-import streamlit as st
 import pandas as pd
-import pdfplumber
-import re
 import numpy as np
-from collections import Counter
+from datetime import datetime
+import re
 
-# --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Moteur Audit V6 (Maths Réelles)")
-st.markdown("""
-<style>
-    .stDataFrame { border: 1px solid #444; }
-    .metric-box { border: 1px solid #ccc; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
-</style>
-""", unsafe_allow_html=True)
+# --- 1. CONFIGURATION DES PARAMÈTRES (A2) ---
+ALPHA = 365.0       # Coefficient de récence (1 an pèse lourd)
+SEUIL_SIMILARITE = 0.1 # Sigma : Si similarité > 0.1, on pénalise
+NB_TARGET = 15      # Objectif : 15 QC optimales
 
-# --- 1. DÉFINITION DES QC ET PATTERNS ---
-QC_LIBRARY = {
-    "ANA_LIM": {
-        "QC_Invariant": "COMMENT Calculer une limite en l'infini",
-        "pattern": r"(limite.*(infini|\+∞|-\∞)|tend vers.*(infini|\+∞|-\∞))",
-        "keywords": ["limite", "tend", "infini", "asymptote"]
-    },
-    "ANA_PRIM": {
-        "QC_Invariant": "COMMENT Déterminer une primitive",
-        "pattern": r"(primitive|intégrale)",
-        "keywords": ["primitive", "intégrale", "fonction", "dérivée"]
-    },
-    "ANA_VAR": {
-        "QC_Invariant": "COMMENT Étudier les variations",
-        "pattern": r"(variations|dérivée|croissante|décroissante|tableau)",
-        "keywords": ["variations", "signe", "dérivée", "tableau"]
-    },
-    "GEO_ESPACE": {
-        "QC_Invariant": "COMMENT Caractériser la position relative (Espace)",
-        "pattern": r"(plan|vecteur normal|orthogonal|coplanaires|sécants|représentation paramétrique)",
-        "keywords": ["plan", "droite", "vecteur", "orthogonal", "normal", "repère"]
-    }
-}
+# --- 2. JEU DE DONNÉES SIMULÉ (CORPUS HISTORIQUE P3) ---
+# On simule ici des clusters de Qi déjà regroupés par QC (étape post-granulo)
+# Chaque entrée représente une QC candidate avec ses métadonnées historiques.
+# Format : {ID_QC, Liste_Années_Apparition, Texte_Ref_Pour_Psi, Triggers}
 
-# --- 2. FONCTIONS MATHÉMATIQUES SMAXIA (STRICTES) ---
+CANDIDATE_POOL = [
+    {"id": "ANA_LIM_INF", "txt": "Calculer la limite en +infini", "years": [2015, 2018, 2021, 2023, 2024], "trigs": {"calculer", "limite", "infini"}},
+    {"id": "ANA_LIM_POINT", "txt": "Calculer la limite en un point", "years": [2016, 2019], "trigs": {"calculer", "limite", "point"}},
+    {"id": "ANA_DERIV_VAR", "txt": "Étudier les variations de la fonction", "years": [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024], "trigs": {"variations", "dérivée"}},
+    {"id": "ANA_PRIM_UNIQUE", "txt": "Déterminer la primitive F qui s'annule en 0", "years": [2018, 2022, 2024], "trigs": {"primitive", "unique", "condition"}},
+    {"id": "ANA_PRIM_GEN", "txt": "Déterminer une primitive quelconque", "years": [2017, 2021], "trigs": {"primitive", "fonction"}}, # Très proche de la précédente (Redondance !)
+    {"id": "GEO_ORTHO", "txt": "Démontrer que la droite est orthogonale au plan", "years": [2019, 2023, 2024], "trigs": {"orthogonal", "plan", "droite"}},
+    {"id": "GEO_COPLAN", "txt": "Justifier que les points sont coplanaires", "years": [2020, 2022], "trigs": {"coplanaires", "points"}},
+    {"id": "PROBA_LOI_NORM", "txt": "Calculer une probabilité loi normale", "years": [2021, 2022, 2023, 2024], "trigs": {"loi", "normale", "probabilité"}},
+    {"id": "PROBA_BINOM", "txt": "Justifier le schéma de Bernoulli", "years": [2015, 2016], "trigs": {"bernoulli", "binomiale"}},
+    {"id": "SUITE_REC", "txt": "Démontrer par récurrence que Un > 0", "years": [2015, 2017, 2019, 2021, 2023], "trigs": {"récurrence", "initialisation"}},
+    {"id": "SUITE_GEO", "txt": "Montrer que la suite est géométrique", "years": [2016, 2018, 2020, 2022, 2024], "trigs": {"géométrique", "raison"}},
+    {"id": "COMPLEXE_ALG", "txt": "Déterminer la forme algébrique", "years": [2015, 2018], "trigs": {"algébrique", "complexe"}},
+    {"id": "COMPLEXE_GEO", "txt": "Déterminer l'ensemble des points M", "years": [2017, 2019, 2023], "trigs": {"ensemble", "points", "affixe"}},
+    {"id": "EQUA_DIFF", "txt": "Résoudre l'équation différentielle (E)", "years": [2015, 2016, 2020], "trigs": {"équation", "différentielle"}},
+    {"id": "INT_CALCUL", "txt": "Calculer l'intégrale I", "years": [2019, 2021, 2023], "trigs": {"intégrale", "calculer"}},
+    {"id": "INT_AIRE", "txt": "Interpréter géométriquement l'intégrale (Aire)", "years": [2018, 2022], "trigs": {"aire", "intégrale", "unités"}} # Redondance avec INT_CALCUL ?
+]
 
-def get_word_counts(text):
-    # Tokenization stricte pour compter N_total et n_q
+# --- 3. FONCTIONS MATHÉMATIQUES (DEFINITIONS STRICTES) ---
+
+def calc_psi(text):
+    """Ψ_q : Potentiel d'Impact Cognitif (Densité sémantique)"""
     words = re.findall(r'\w+', text.lower())
-    
-    # N_total = TOUS les mots (y compris "le", "de", "et")
-    N_total = len(words)
-    
-    stopwords = ['le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'ou', 'est', 'sont', 'par', 'pour', 'que', 'qui', 'dans', 'sur']
-    # n_q = Mots porteurs de sens (> 2 lettres, pas stopword)
-    useful_words = [w for w in words if len(w) > 2 and w not in stopwords]
-    n_q = len(useful_words)
-    
-    return N_total, n_q, useful_words
+    stopwords = ["le", "la", "de", "une", "que", "est", "les", "en"]
+    meaningful = [w for w in words if w not in stopwords and len(w) > 2]
+    return round(len(set(meaningful)) / len(words), 3) if words else 0
 
-def compute_sigma(words):
-    # Pénalité de bruit (Bruit = Mots administratifs)
-    noise_list = ['candidat', 'copie', 'sujet', 'page', 'points', 'annexe', 'rendu', 'exercice']
-    noise_count = sum(1 for w in words if w in noise_list)
-    # Formule Sigma : 0.15 par mot de bruit, max 0.9
-    sigma = min(noise_count * 0.15, 0.9)
-    return sigma
+def calc_sigma(trigs_q, trigs_p):
+    """σ(q,p) : Similarité vectorielle (Jaccard sur les triggers)"""
+    # Mesure le recouvrement entre deux QC. Si elles partagent trop de triggers, Sigma augmente.
+    intersection = len(trigs_q.intersection(trigs_p))
+    union = len(trigs_q.union(trigs_p))
+    return intersection / union if union > 0 else 0
 
-def compute_equation_smaxia(text, keywords_ctx, tau_global):
-    # 1. Variables de base
-    N_total, n_q, useful_words = get_word_counts(text)
-    
-    if N_total == 0: return None
-    
-    # 2. Alpha (Pertinence contextuelle)
-    # Combien de mots utiles sont des mots-clés du chapitre ?
-    matches = sum(1 for w in useful_words if w in keywords_ctx)
-    alpha = matches # Valeur brute
-    
-    # 3. Psi (Densité sémantique)
-    # Ratio : Mots uniques / Mots utiles
-    unique_words = set(useful_words)
-    psi = len(unique_words) / n_q if n_q > 0 else 0
-    
-    # 4. Sigma (Bruit)
-    sigma = compute_sigma(useful_words)
-    
-    # 5. ÉQUATION SMAXIA
-    # Score = (n_q / N_total) * [1 + (Alpha / Tau)] * Psi * (1 - Sigma)
-    
-    # Sécurité div par 0 pour Tau
-    tau_safe = tau_global if tau_global > 0 else 1.0
-    
-    term_densite = n_q / N_total
-    term_contexte = 1 + (alpha / tau_safe)
-    term_bruit = 1 - sigma
-    
-    raw_score = term_densite * term_contexte * psi * term_bruit
-    
-    # Mise à l'échelle pour affichage (x10)
-    final_score = raw_score * 10
-    
-    return {
-        "N_tot": N_total,
-        "n_q": n_q,
-        "Alpha": alpha,
-        "Tau": tau_safe,
-        "Psi": round(psi, 3),
-        "Sigma": round(sigma, 2),
-        "SCORE": round(final_score, 4)
-    }
+def calc_time_rec(years):
+    """t_rec : Temps écoulé (en jours approx) depuis la dernière occurrence"""
+    current_year = datetime.now().year
+    last_year = max(years)
+    delta_years = current_year - last_year
+    # On convertit en jours pour la formule, minimum 1 jour pour éviter div/0
+    t_rec_days = max(delta_years * 365, 1) 
+    return t_rec_days
 
-# --- 3. PIPELINE D'ANALYSE ---
+# --- 4. MOTEUR DE SÉLECTION (ARGMAX LOOP) ---
 
-def run_analysis(files):
-    # ÉTAPE 1 : EXTRACTION ET CALCUL DE TAU (GLOBAL)
-    all_segments = []
-    global_recurrence = {k: 0 for k in QC_LIBRARY.keys()}
+def run_smaxia_selection(candidates):
+    print(f"--- DÉMARRAGE ALGORITHME SÉLECTIF F2 ---")
     
-    # Lecture complète pour statistique globale
-    for f in files:
-        text = ""
-        with pdfplumber.open(f) as pdf:
-            for page in pdf.pages:
-                extract = page.extract_text()
-                if extract: text += extract + "\n"
-        text = text.replace('\n', ' ')
-        raw_segs = [s.strip() for s in re.split(r'[.;?!]', text) if len(s) > 20]
+    # 1. Calcul de N_total (Volume historique total des occurrences)
+    # Somme de toutes les occurrences de toutes les candidates
+    N_total_occurrences = sum(len(c["years"]) for c in candidates)
+    print(f"N_total (Volume Historique) = {N_total_occurrences}\n")
+    
+    # 2. Pré-calcul des scores "Base" (Intrinsèques)
+    # Score_Base = (n_q / N_tot) * (1 + alpha/t_rec) * Psi
+    pool = []
+    for c in candidates:
+        n_q = len(c["years"])
+        t_rec = calc_time_rec(c["years"])
+        psi = calc_psi(c["txt"])
         
-        for seg in raw_segs:
-            # On cherche à quelle QC appartient ce segment pour incrémenter Tau
-            for code, lib in QC_LIBRARY.items():
-                if re.search(lib['pattern'], seg, re.IGNORECASE):
-                    global_recurrence[code] += 1
-                    all_segments.append({
-                        "Code": code,
-                        "Qi": seg,
-                        "Source_File": f.name
-                    })
-                    break # Un segment = Une QC unique
+        # Bloc Fréquence
+        freq_term = n_q / N_total_occurrences
+        
+        # Bloc Récence
+        recency_term = 1 + (ALPHA / t_rec)
+        
+        # Bloc Valeur
+        base_score = freq_term * recency_term * psi * 100 # x100 pour lisibilité
+        
+        pool.append({
+            "id": c["id"],
+            "obj": c,
+            "base_score": base_score,
+            "current_score": base_score, # Au début, Redondance = 1 (pas de pénalité)
+            "n_q": n_q,
+            "t_rec": t_rec,
+            "psi": psi,
+            "selected": False
+        })
+
+    # 3. Boucle de Sélection (Argmax itératif)
+    selected_qcs = []
     
-    # ÉTAPE 2 : CALCUL DES SCORES AVEC LE VRAI TAU
-    results = []
-    for item in all_segments:
-        code = item["Code"]
-        lib = QC_LIBRARY[code]
+    while len(selected_qcs) < NB_TARGET and len(pool) > len(selected_qcs):
+        # A. Trouver le MAX parmi les non-sélectionnés
+        candidates_left = [p for p in pool if not p["selected"]]
+        if not candidates_left: break
         
-        # Le Tau est maintenant la vraie fréquence dans le corpus injecté
-        real_tau = global_recurrence[code]
+        # Argmax
+        best_candidate = max(candidates_left, key=lambda x: x["current_score"])
         
-        metrics = compute_equation_smaxia(item["Qi"], lib["keywords"], real_tau)
+        # B. Sélectionner
+        best_candidate["selected"] = True
+        rank = len(selected_qcs) + 1
+        selected_qcs.append(best_candidate)
         
-        if metrics:
-            results.append({
-                "QC_Invariant": lib["QC_Invariant"],
-                "Qi_Source": item["Qi"],
-                **metrics # Injection des résultats
-            })
-            
-    return pd.DataFrame(results)
+        print(f"RANG {rank} : {best_candidate['id']} (Score: {best_candidate['current_score']:.4f})")
+        
+        # C. Mettre à jour les scores des RESTANTS (Anti-Redondance)
+        # Pour chaque candidat restant q, on multiplie son score par (1 - Sigma(q, best))
+        for item in pool:
+            if not item["selected"]:
+                # Calcul de Sigma entre l'item et celui qu'on vient de choisir
+                sigma = calc_sigma(item["obj"]["trigs"], best_candidate["obj"]["trigs"])
+                
+                # Application de la pénalité si Sigma significatif
+                penalty_factor = (1 - sigma)
+                
+                # Mise à jour du score courant
+                old_score = item["current_score"]
+                item["current_score"] *= penalty_factor
+                
+                if sigma > SEUIL_SIMILARITE:
+                    print(f"   -> Pénalité Redondance sur {item['id']} (Sim avec {best_candidate['id']} = {sigma:.2f}) : {old_score:.4f} -> {item['current_score']:.4f}")
 
-# --- INTERFACE ---
-st.title("🛡️ SMAXIA V6 - La Vérité Mathématique")
+    return pd.DataFrame(selected_qcs)
 
-# --- BARRE LATÉRALE : CONTRE-EXPERTISE ---
-with st.sidebar:
-    st.header("🧮 Outil de Vérification")
-    st.info("Collez une Qi ici pour vérifier manuellement les variables.")
-    test_txt = st.text_area("Phrase à tester", height=100)
-    test_tau = st.number_input("Tau supposé (Récurrence)", value=5, min_value=1)
+# --- EXÉCUTION ---
+if __name__ == "__main__":
+    df_result = run_smaxia_selection(CANDIDATE_POOL)
     
-    if test_txt:
-        # On utilise le moteur 'ANA_LIM' par défaut pour tester les maths
-        debug_res = compute_equation_smaxia(test_txt, ["limite", "infini"], test_tau)
-        st.write("---")
-        st.markdown(f"**N_total (Mots totaux):** {debug_res['N_tot']}")
-        st.markdown(f"**n_q (Mots utiles):** {debug_res['n_q']}")
-        st.markdown(f"**Psi (Densité):** {debug_res['Psi']}")
-        st.markdown(f"**Sigma (Bruit):** {debug_res['Sigma']}")
-        st.markdown(f"### SCORE: {debug_res['SCORE']}")
-
-# --- ZONE PRINCIPALE ---
-st.write("Injectez vos sujets. Tau ($\tau$) sera calculé dynamiquement selon la fréquence d'apparition dans VOS fichiers.")
-
-uploaded_files = st.file_uploader("PDF Sujets", type=['pdf'], accept_multiple_files=True)
-
-if uploaded_files:
-    with st.spinner("Calcul de la récurrence globale et scoring..."):
-        df = run_analysis(uploaded_files)
-    
-    if not df.empty:
-        # Affichage groupé par QC
-        unique_qcs = df['QC_Invariant'].unique()
-        
-        for qc in unique_qcs:
-            st.markdown("---")
-            df_qc = df[df['QC_Invariant'] == qc].sort_values(by="SCORE", ascending=False)
-            
-            # On récupère le Tau réel utilisé pour ce groupe
-            tau_real = df_qc.iloc[0]['Tau']
-            
-            st.markdown(f"#### 🗝️ {qc}")
-            st.caption(f"Récurrence détectée dans le lot : **Tau = {tau_real}** (Ce concept apparait {tau_real} fois)")
-            
-            # TABLEAU DE PREUVE
-            st.dataframe(
-                df_qc[["SCORE", "Qi_Source", "N_tot", "n_q", "Psi", "Alpha", "Sigma"]],
-                column_config={
-                    "Qi_Source": st.column_config.TextColumn("Qi (Phrase Élève)", width="large"),
-                    "SCORE": st.column_config.ProgressColumn("Score", format="%.4f", min_value=0, max_value=5),
-                    "N_tot": st.column_config.NumberColumn("N_tot (Longueur)", format="%d"),
-                    "Psi": st.column_config.NumberColumn("Ψ (Richesse)", format="%.3f"),
-                    "Sigma": st.column_config.NumberColumn("σ (Pénalité)", format="%.2f"),
-                },
-                use_container_width=True,
-                hide_index=True
-            )
-    else:
-        st.warning("Aucune donnée SMAXIA détectée dans les fichiers.")
+    print("\n--- TABLEAU FINAL : LES 15 QC OPTIMALES ---")
+    # On affiche les variables brutes pour prouver le calcul
+    cols = ["id", "current_score", "n_q", "t_rec", "psi", "base_score"]
+    print(df_result[cols].to_string())
