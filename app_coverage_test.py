@@ -6,8 +6,8 @@ import time
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Factory V5.1")
-st.title("🏭 SMAXIA - Console Factory & Crash Test (V5.1)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Factory V6")
+st.title("🏭 SMAXIA - Console Factory & Crash Test (V6 - Audit Qi)")
 
 # --- 0. SIMULATEUR DE DONNÉES MATHÉMATIQUES ---
 DB_MATHS = {
@@ -69,7 +69,7 @@ def ingest_and_calculate(urls, n_per_url, chapitres_cibles):
             sources_log.append({
                 "ID": file_id,
                 "Fichier": filename,
-                "Télécharger": download_link, # Lien simulé
+                "Télécharger": download_link,
                 "Nature": nature, 
                 "Année": year,
                 "Statut": "📥 OK"
@@ -98,10 +98,11 @@ def ingest_and_calculate(urls, n_per_url, chapitres_cibles):
     if df_qi.empty:
         return df_sources, df_qi, pd.DataFrame()
 
+    # On regroupe par Concept (Qi_Brut) pour créer la QC Invariante
     grouped = df_qi.groupby(["Chapitre", "Qi_Brut"]).agg({
         "ID_Source": "count",      # n_q
         "Année": "max",            # Récence
-        "Fichier_Origine": list
+        "Fichier_Origine": list    # Liste des fichiers
     }).reset_index()
     
     qcs = []
@@ -118,6 +119,14 @@ def ingest_and_calculate(urls, n_per_url, chapitres_cibles):
         score = (n_q / N_total) * (1 + alpha/tau) * psi * (1-sigma) * 100
         qc_name = f"COMMENT {row['Qi_Brut']}..."
         
+        # CONSTRUCTION DE LA PREUVE DÉTAILLÉE (Fichier + Qi)
+        evidence_list = []
+        for f in row["Fichier_Origine"]:
+            evidence_list.append({
+                "Fichier Source": f,
+                "Qi Extraite (Enoncé)": row["Qi_Brut"] # L'atome exact trouvé dans ce fichier
+            })
+        
         qcs.append({
             "CHAPITRE": row["Chapitre"],
             "QC_INVARIANTE": qc_name,
@@ -125,12 +134,12 @@ def ingest_and_calculate(urls, n_per_url, chapitres_cibles):
             "n_q": n_q,
             "N_tot": N_total,
             "Tau": tau,
-            "QI_ASSOCIES": row["Fichier_Origine"]
+            "QI_PREUVE": evidence_list # Nouvelle structure de données
         })
         
     df_qc = pd.DataFrame(qcs).sort_values(by=["CHAPITRE", "SCORE_F2"], ascending=[True, False])
     
-    # AJOUT DES IDs UNIQUES (QC_1, QC_2...)
+    # AJOUT DES IDs UNIQUES
     df_qc = df_qc.reset_index(drop=True)
     df_qc["QC_ID"] = df_qc.index + 1
     df_qc["QC_ID"] = df_qc["QC_ID"].apply(lambda x: f"QC_{x:03d}")
@@ -211,7 +220,7 @@ with tab_factory:
             st.session_state['df_qi'] = df_qi
             st.session_state['df_qc'] = df_qc
             st.success("Usine mise à jour.")
-            # On force le rechargement pour afficher les nouvelles colonnes proprement
+            # Refresh pour nettoyer les anciennes données
             st.rerun()
 
     st.divider()
@@ -224,11 +233,10 @@ with tab_factory:
         with col_left:
             st.markdown(f"### 📥 Sujets ({len(st.session_state['df_src'])})")
             
-            # SÉCURITÉ ANTI-CRASH V5
-            # Si l'utilisateur a de vieilles données en cache sans la colonne 'Télécharger', on gère l'erreur
+            # Safe Mode check
             if "Télécharger" not in st.session_state['df_src'].columns:
-                st.warning("⚠️ Données obsolètes détectées. Veuillez relancer l'usine (bouton rouge).")
-                df_display_src = st.session_state['df_src'][["Fichier", "Nature", "Année"]]
+                st.warning("⚠️ Données obsolètes. Relancez l'usine.")
+                df_display_src = st.session_state['df_src']
             else:
                 df_display_src = st.session_state['df_src'][["Fichier", "Nature", "Année", "Télécharger"]]
 
@@ -247,11 +255,9 @@ with tab_factory:
             st.markdown(f"### 🧠 QC Générées (Total : {total_qc})")
             
             if not st.session_state['df_qc'].empty:
-                # SÉCURITÉ : Vérification que QC_ID existe
-                if "QC_ID" not in st.session_state['df_qc'].columns:
-                     st.warning("⚠️ Ancienne structure QC détectée. Relancez l'usine.")
-                else:
-                    # Filtre Chapitre
+                
+                # Filtre Chapitre
+                if "CHAPITRE" in st.session_state['df_qc'].columns:
                     available_chaps = st.session_state['df_qc']["CHAPITRE"].unique()
                     chap_filter = st.selectbox("Filtrer par Chapitre", available_chaps)
                     
@@ -274,12 +280,25 @@ with tab_factory:
                                 k3.caption(f"Récence (τ): {row['Tau']}")
                                 k4.caption(f"Densité (Ψ): 1.0")
                                 
-                                # Preuve
-                                with st.expander("Voir les Qi sources"):
-                                    st.dataframe(pd.DataFrame(row['QI_ASSOCIES'], columns=["Fichiers Sources"]), hide_index=True)
+                                # Preuve Détaillée (Liste des Qi)
+                                with st.expander(f"Voir les {row['n_q']} Qi sources"):
+                                    if "QI_PREUVE" in row:
+                                        st.dataframe(
+                                            pd.DataFrame(row['QI_PREUVE']), 
+                                            column_config={
+                                                "Fichier Source": st.column_config.TextColumn("Fichier", width="small"),
+                                                "Qi Extraite (Enoncé)": st.column_config.TextColumn("Atome (Qi)", width="large")
+                                            },
+                                            use_container_width=True, 
+                                            hide_index=True
+                                        )
+                                    else:
+                                        st.write("Détails non disponibles.")
                                 st.divider()
                     else:
                         st.info("Aucune QC pour ce chapitre.")
+                else:
+                    st.error("Structure de données invalide. Relancez l'usine.")
 
 # --- TAB 2 : CRASH TEST ---
 with tab_test:
