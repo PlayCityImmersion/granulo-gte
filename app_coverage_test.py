@@ -3,75 +3,75 @@ import pandas as pd
 import numpy as np
 import random
 import time
-from io import BytesIO
+from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Factory V6.5")
-st.title("🏭 SMAXIA - Console Factory & Crash Test (V6.5 - Corrective)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Factory V6.6")
+st.title("🏭 SMAXIA - Console Factory V6.6 (Restauration + Corrections)")
 
-# --- 0. MOTEUR DE VARIANTES (POLYMORPHISME) ---
-# Templates pour éviter que les Qi soient toutes identiques
-MATH_TEMPLATES = {
+# --- 0. MOTEUR DE VARIANTES (CORRECTION 3 : Polymorphisme) ---
+# Pour éviter que les Qi soient toutes pareilles, on utilise des templates
+MATH_VARIANTS = {
     "SUITES_GEO": [
-        "Montrer que la suite ({name}) est géométrique.",
-        "Démontrer que ({name}) est une suite géométrique de raison {val}.",
-        "Justifier que la suite définie par {name} est de nature géométrique.",
-        "En déduire que ({name}) est géométrique."
+        "Montrer que la suite ({u}) est géométrique.",
+        "Démontrer que la suite définie par {u} est géométrique de raison {q}.",
+        "Justifier le caractère géométrique de la suite ({u}).",
+        "Prouver que pour tout n, {u} est une suite géométrique."
     ],
     "SUITES_LIM": [
-        "Déterminer la limite de la suite ({name}).",
-        "Calculer la limite de ({name}) quand n tend vers l'infini.",
-        "Étudier la convergence de la suite ({name}).",
-        "La suite ({name}) converge-t-elle vers {val} ?"
+        "Déterminer la limite de la suite ({u}).",
+        "Calculer la limite de ({u}) quand n tend vers l'infini.",
+        "Étudier la convergence de la suite ({u}).",
+        "La suite ({u}) converge-t-elle ?"
     ],
     "COMPLEXE_ALG": [
-        "Déterminer la forme algébrique du nombre complexe {var}.",
-        "Écrire {var} sous forme a + ib.",
-        "Calculer la partie réelle et imaginaire de {var}.",
-        "Mettre le nombre {var} sous forme algébrique."
+        "Déterminer la forme algébrique du nombre complexe {z}.",
+        "Écrire le nombre {z} sous forme a + ib.",
+        "Donner la partie réelle et imaginaire de {z}.",
+        "Mettre {z} sous forme algébrique."
     ],
     "ESPACE_ORTHO": [
         "Démontrer que la droite ({d}) est orthogonale au plan ({p}).",
         "Prouver que le vecteur {v} est normal au plan ({p}).",
-        "Justifier que ({d}) est perpendiculaire à ({p}).",
-        "Vérifier l'orthogonalité entre ({d}) et ({p})."
+        "Justifier l'orthogonalité entre ({d}) et ({p}).",
+        "Vérifier que ({d}) est perpendiculaire à ({p})."
     ]
 }
 
-# Variables aléatoires pour varier les énoncés
-VAR_NAMES = ["Un", "Vn", "Wn", "tn"]
-COMPLEX_VARS = ["z", "z'", "zA", "Ω"]
-VECTORS = ["n", "u", "v", "AB"]
-VALS = ["1/2", "3", "q", "-1", "0"]
-DROITES = ["D", "Delta", "(AB)"]
-PLANS = ["P", "(ABC)", "Q"]
+# Variables aléatoires pour varier le texte
+VARS_SUITE = ["Un", "Vn", "Wn", "tn"]
+VARS_CPLX = ["z", "zA", "zB", "Ω"]
+VARS_DROITE = ["(d)", "(Delta)", "(AB)"]
+VARS_PLAN = ["(P)", "(ABC)", "(Pi)"]
 
-def get_variant(concept_code):
-    """Génère une phrase unique"""
-    if concept_code not in MATH_TEMPLATES: return "Question standard."
-    tpl = random.choice(MATH_TEMPLATES[concept_code])
+def get_varied_qi(concept_key):
+    """Génère une phrase unique pour le concept donné"""
+    tpl = random.choice(MATH_VARIANTS.get(concept_key, ["Question standard."]))
     return tpl.format(
-        name=random.choice(VAR_NAMES),
-        val=random.choice(VALS),
-        var=random.choice(COMPLEX_VARS),
-        d=random.choice(DROITES),
-        p=random.choice(PLANS),
-        v=random.choice(VECTORS)
+        u=random.choice(VARS_SUITE),
+        q=random.choice(["1/2", "3", "q", "-2"]),
+        z=random.choice(VARS_CPLX),
+        d=random.choice(VARS_DROITE),
+        p=random.choice(VARS_PLAN),
+        v=random.choice(["n", "u", "v"])
     )
+
+# Mapping : Chapitre -> Liste de Concepts disponibles
+DB_CONCEPTS = {
+    "SUITES NUMÉRIQUES": ["SUITES_GEO", "SUITES_LIM"],
+    "NOMBRES COMPLEXES": ["COMPLEXE_ALG"],
+    "GÉOMÉTRIE ESPACE": ["ESPACE_ORTHO"]
+}
 
 # --- 1. FONCTIONS MOTEUR ---
 
-def ingest_and_calculate(urls, n_per_url):
-    """
-    Sourcing -> Génération Fichier Physique -> Extraction Polymorphe -> QC
-    """
+def ingest_and_calculate(urls, n_per_url, chapitres_cibles):
     sources_log = []
     all_qi = []
     natures = ["BAC", "DST", "INTERRO", "CONCOURS"]
     
-    # 1. SOURCING
     progress = st.progress(0)
-    total_ops = len(urls) * n_per_url
+    total_ops = len(urls) * n_per_url if len(urls) > 0 else 1
     counter = 0
     
     for i, url in enumerate(urls):
@@ -79,167 +79,125 @@ def ingest_and_calculate(urls, n_per_url):
         for j in range(n_per_url):
             counter += 1
             progress.progress(min(counter/total_ops, 1.0))
-            time.sleep(0.002) 
+            time.sleep(0.005) 
             
             nature = random.choice(natures)
             year = random.choice(range(2020, 2025))
             file_id = f"DOC_{i}_{j}"
             filename = f"Sujet_{nature}_{year}_{j}.txt"
             
-            # Génération des Concepts pour ce sujet (2 à 3 concepts)
-            concepts_du_sujet = random.sample(list(MATH_TEMPLATES.keys()), k=random.randint(2, 3))
-            qi_content_list = []
+            # Génération du contenu physique (Correction 1)
+            file_content_lines = [f"SUJET {nature} - {year}", f"SOURCE: {url}", "-"*20]
             
-            # Pour chaque concept, on génère une variante unique
-            for code in concepts_du_sujet:
-                qi_text = get_variant(code) # Polymorphisme ici !
-                qi_content_list.append(qi_text)
-                
-                all_qi.append({
-                    "Concept_Code": code, # L'invariant caché
-                    "Qi_Brut": qi_text,   # La phrase visible (variée)
-                    "Fichier": filename,
-                    "Année": year,
-                    "Nature": nature
-                })
+            # Extraction Qi (Simulée)
+            # On ne prend que les chapitres demandés dans la sidebar
+            valid_chaps = [c for c in chapitres_cibles if c in DB_CONCEPTS]
+            if not valid_chaps: valid_chaps = list(DB_CONCEPTS.keys())
             
-            # Génération du contenu physique du fichier (Pour téléchargement)
-            file_content = f"""ACADÉMIE SMAXIA - {year}
-            ÉPREUVE : {nature}
-            SOURCE : {url}
-            --------------------------------
-            EXERCICE 1
-            1. {qi_content_list[0] if len(qi_content_list)>0 else "..."}
-            2. {qi_content_list[1] if len(qi_content_list)>1 else "..."}
+            chaps_sujet = random.sample(valid_chaps, k=min(len(valid_chaps), 2))
             
-            EXERCICE 2
-            1. {qi_content_list[2] if len(qi_content_list)>2 else "..."}
-            --------------------------------
-            FIN DU SUJET
-            """
+            for chap in chaps_sujet:
+                concepts = DB_CONCEPTS[chap]
+                for concept in concepts:
+                    # ICI : On génère une variante unique (Correction 3)
+                    qi_txt = get_varied_qi(concept)
+                    
+                    file_content_lines.append(f"Exo: {qi_txt}")
+                    
+                    all_qi.append({
+                        "ID_Source": file_id,
+                        "Nature_Source": nature,
+                        "Année": year,
+                        "Chapitre": chap,
+                        "Concept_Code": concept, # Invariant caché
+                        "Qi_Brut": qi_txt,       # Phrase visible (Variable)
+                        "Fichier_Origine": filename
+                    })
+            
+            # Stockage du contenu complet pour téléchargement
+            full_text = "\n".join(file_content_lines)
             
             sources_log.append({
                 "ID": file_id,
                 "Fichier": filename,
                 "Nature": nature, 
                 "Année": year,
-                "Content_Blob": file_content # Stocké pour téléchargement
+                "Contenu_Blob": full_text # Le vrai texte
             })
     
     progress.empty()
-    df_sources = pd.DataFrame(sources_log)
-    df_qi = pd.DataFrame(all_qi)
-    
-    # 2. CALCUL MOTEUR QC (F2)
-    if df_qi.empty: return df_sources, df_qi, pd.DataFrame()
+    return pd.DataFrame(sources_log), pd.DataFrame(all_qi)
 
-    # On groupe par Concept_Code (L'invariant) et non par texte exact
-    grouped = df_qi.groupby("Concept_Code").agg({
-        "Qi_Brut": list,           # Liste des variantes
-        "Fichier": list,           # Liste des fichiers
+def calculate_engine_qc(df_qi):
+    if df_qi.empty: return pd.DataFrame()
+
+    # Regroupement par CONCEPT (Invariant) et non par texte
+    grouped = df_qi.groupby(["Chapitre", "Concept_Code"]).agg({
+        "Qi_Brut": list,           # Liste des phrases (Variantes)
+        "Fichier_Origine": list,   # Liste des fichiers
         "Année": "max"             # Récence
     }).reset_index()
     
     qcs = []
-    N_total = len(df_qi)
     current_year = datetime.now().year
     
-    # Mapping Titres Propres
-    TITRES = {
+    # Titres QC propres
+    TITRES_QC = {
         "SUITES_GEO": "COMMENT Démontrer qu'une suite est géométrique",
         "SUITES_LIM": "COMMENT Calculer la limite d'une suite",
         "COMPLEXE_ALG": "COMMENT Déterminer la forme algébrique",
-        "ESPACE_ORTHO": "COMMENT Démontrer l'orthogonalité Droite/Plan"
+        "ESPACE_ORTHO": "COMMENT Caractériser l'orthogonalité Droite/Plan"
     }
     
     for idx, row in grouped.iterrows():
-        n_q = len(row["Qi_Brut"]) # Fréquence réelle
+        n_q = len(row["Qi_Brut"])
+        N_total = len(df_qi) # Simplifié
         tau = max((current_year - row["Année"]), 0.5)
         alpha = 5.0
         psi = 1.0 
         sigma = 0.00
         
         score = (n_q / N_total) * (1 + alpha/tau) * psi * (1-sigma) * 100
-        qc_name = TITRES.get(row["Concept_Code"], row["Concept_Code"])
+        qc_title = TITRES_QC.get(row["Concept_Code"], row["Concept_Code"])
         
-        # PREUVE DÉTAILLÉE
-        evidence_list = []
+        # Preuve (Liste des Qi variées)
+        evidence = []
         for k in range(len(row["Qi_Brut"])):
-            evidence_list.append({
-                "Fichier Source": row["Fichier"][k],
-                "Qi Extraite (Enoncé)": row["Qi_Brut"][k] # Phrases différentes !
+            evidence.append({
+                "Fichier": row["Fichier_Origine"][k],
+                "Qi (Variante)": row["Qi_Brut"][k]
             })
-        
+            
         qcs.append({
-            "QC_ID": f"QC_{idx+1:03d}",
-            "QC_INVARIANTE": qc_name,
+            "CHAPITRE": row["Chapitre"],
+            "QC_INVARIANTE": qc_title,
             "SCORE_F2": score,
             "n_q": n_q,
             "N_tot": N_total,
             "Tau": tau,
-            "QI_PREUVE": evidence_list
+            "Alpha": alpha,
+            "Psi": psi,
+            "Sigma": sigma,
+            "EVIDENCE": evidence
         })
         
-    df_qc = pd.DataFrame(qcs).sort_values(by="SCORE_F2", ascending=False)
-    return df_sources, df_qi, df_qc
+    return pd.DataFrame(qcs).sort_values(by=["CHAPITRE", "SCORE_F2"], ascending=[True, False])
 
-def analyze_external_subject(doc_type, df_qc_engine):
-    """Simule crash test"""
-    # On génère 3 Qi variées
-    concepts = random.sample(list(MATH_TEMPLATES.keys()), 3)
-    extracted_qi = [get_variant(c) for c in concepts]
-    extracted_qi.append("Démontrer la conjecture de Riemann") # Piège
-    
-    results = []
-    for qi in extracted_qi:
-        match_found = False
-        match_id, match_text = "---", "---"
-        
-        # Recherche loose (simulation sémantique)
-        # On triche un peu pour la démo en cherchant des mots clés
-        keywords = {
-            "géométrique": "SUITES_GEO", "limite": "SUITES_LIM", 
-            "algébrique": "COMPLEXE_ALG", "orthogonale": "ESPACE_ORTHO"
-        }
-        
-        detected_concept = None
-        for kw, code in keywords.items():
-            if kw in qi: detected_concept = code
-            
-        if detected_concept:
-            # Trouver la QC correspondante dans le moteur
-            # (Dans la réalité, on utiliserait le Concept_Code, ici on mappe le titre)
-            TITRES_REV = {
-                "SUITES_GEO": "géométrique", "SUITES_LIM": "limite",
-                "COMPLEXE_ALG": "algébrique", "ESPACE_ORTHO": "orthogonalité"
-            }
-            
-            for idx, row in df_qc_engine.iterrows():
-                if TITRES_REV.get(detected_concept, "XYZ") in row["QC_INVARIANTE"]:
-                    match_found = True
-                    match_id = row["QC_ID"]
-                    match_text = row["QC_INVARIANTE"]
-                    break
-        
-        results.append({
-            "Qi_Enonce": qi,
-            "Statut": "✅ MATCH" if match_found else "❌ GAP",
-            "QC_ID": match_id,
-            "QC_Moteur": match_text
-        })
-    return pd.DataFrame(results)
+# --- INTERFACE (RESTAURATION STRUCTURE V6) ---
 
-# --- INTERFACE ---
-
-# SIDEBAR
+# SIDEBAR (RESTAURÉE)
 with st.sidebar:
     st.header("1. Périmètre Usine")
-    st.info("Périmètre : Terminale Mathématiques (Analyse, Géométrie, Complexes)")
+    # Choix multiples restaurés comme avant
+    chapitres_actifs = st.multiselect(
+        "Chapitres Cibles", 
+        list(DB_CONCEPTS.keys()), 
+        default=list(DB_CONCEPTS.keys())
+    )
 
 # TABS
-tab_factory, tab_test = st.tabs(["🏭 USINE (Production)", "🧪 CRASH TEST (Validation)"])
+tab_factory = st.container()
 
-# --- TAB 1 : USINE ---
 with tab_factory:
     st.subheader("A. Sourcing & Génération QC")
 
@@ -247,46 +205,47 @@ with tab_factory:
     with col_input:
         urls_input = st.text_area("Sources (URLs)", "https://apmep.fr/terminale\nhttps://sujetdebac.fr", height=70)
     with col_act:
-        # CORRECTION 2 : STEP = 5
+        # CORRECTION 2 : Step = 5
         n_sujets = st.number_input("Vol. par URL", min_value=5, max_value=100, value=10, step=5)
         btn_run = st.button("LANCER L'USINE 🚀", type="primary")
 
     if btn_run:
         url_list = urls_input.split('\n')
-        with st.spinner("Génération Polymorphe & Calculs..."):
-            df_src, df_qi, df_qc = ingest_and_calculate(url_list, n_sujets)
+        with st.spinner("Traitement Polymorphe..."):
+            df_src, df_qi = ingest_and_calculate(url_list, n_sujets, chapitres_actifs)
+            df_qc = calculate_engine_qc(df_qi)
+            
             st.session_state['df_src'] = df_src
             st.session_state['df_qc'] = df_qc
             st.success("Usine mise à jour.")
-            st.rerun()
 
     st.divider()
 
-    # VUE SPLIT USINE
+    # VUE SPLIT USINE (GAUCHE / DROITE)
     if 'df_qc' in st.session_state:
         col_left, col_right = st.columns([1, 1.5])
         
-        # --- GAUCHE : SUJETS SOURCÉS (CORRECTION 1 : Téléchargement) ---
+        # --- GAUCHE : SUJETS (CORRECTION 1 : Téléchargement) ---
         with col_left:
             st.markdown(f"### 📥 Sujets ({len(st.session_state['df_src'])})")
             
-            # Tableau simple
+            # Affichage tableau simple
             st.dataframe(
                 st.session_state['df_src'][["Fichier", "Nature", "Année"]],
                 use_container_width=True,
                 height=400
             )
             
-            # ZONE DE TÉLÉCHARGEMENT PHYSIQUE
-            st.markdown("#### 💾 Zone de Téléchargement")
-            sel_file = st.selectbox("Sélectionner un fichier à vérifier :", st.session_state['df_src']["Fichier"])
+            st.markdown("#### 💾 Téléchargement Physique")
+            # Sélecteur pour télécharger
+            sel_file = st.selectbox("Choisir le sujet à vérifier :", st.session_state['df_src']["Fichier"])
             
-            # Récupération des données du fichier
+            # Récupération du blob
             file_data = st.session_state['df_src'][st.session_state['df_src']["Fichier"] == sel_file].iloc[0]
             
             st.download_button(
                 label=f"📥 Télécharger {sel_file}",
-                data=file_data["Content_Blob"],
+                data=file_data["Contenu_Blob"],
                 file_name=sel_file,
                 mime="text/plain",
                 type="secondary"
@@ -298,61 +257,32 @@ with tab_factory:
             st.markdown(f"### 🧠 QC Générées (Total : {total_qc})")
             
             if not st.session_state['df_qc'].empty:
-                for idx, row in st.session_state['df_qc'].iterrows():
+                # Filtre Chapitre (Restauration)
+                available_chaps = st.session_state['df_qc']["CHAPITRE"].unique()
+                chap_filter = st.selectbox("Filtrer Affichage QC", available_chaps)
+                
+                df_view_qc = st.session_state['df_qc'][st.session_state['df_qc']["CHAPITRE"] == chap_filter]
+                
+                for idx, row in df_view_qc.iterrows():
                     with st.container():
-                        c1, c2 = st.columns([0.5, 3])
-                        c1.markdown(f"**`{row['QC_ID']}`**")
-                        c2.info(f"**{row['QC_INVARIANTE']}**")
+                        st.info(f"**{row['QC_INVARIANTE']}**")
+                        st.caption(f"Score F2: **{row['SCORE_F2']:.2f}**")
                         
-                        k1, k2, k3, k4 = st.columns(4)
-                        k1.caption(f"Score F2: **{row['SCORE_F2']:.1f}**")
-                        k2.caption(f"Freq: {row['n_q']}")
-                        k3.caption(f"Récence: {row['Tau']}")
-                        k4.caption(f"Densité: 1.0")
+                        # Affichage des variables F2 (Demandé)
+                        cols_var = st.columns(6)
+                        cols_var[0].metric("n_q", row['n_q'])
+                        cols_var[1].metric("N_tot", row['N_tot'])
+                        cols_var[2].metric("Tau", row['Tau'])
+                        cols_var[3].metric("Alpha", row['Alpha'])
+                        cols_var[4].metric("Psi", row['Psi'])
+                        cols_var[5].metric("Sigma", row['Sigma'])
                         
-                        # CORRECTION 3 : PREUVE POLYMORPHE
-                        with st.expander(f"Voir les {row['n_q']} Qi sources (Notez les variations)"):
-                            st.dataframe(
-                                pd.DataFrame(row['QI_PREUVE']), 
-                                column_config={
-                                    "Fichier Source": st.column_config.TextColumn("Fichier", width="small"),
-                                    "Qi Extraite (Enoncé)": st.column_config.TextColumn("Atome (Qi)", width="large")
-                                },
-                                use_container_width=True, 
-                                hide_index=True
-                            )
+                        # CORRECTION 3 : Preuve Polymorphe
+                        with st.expander(f"Voir les {row['n_q']} Variantes (Preuve)"):
+                            st.write("Phrases élèves différentes regroupées ici :")
+                            st.dataframe(pd.DataFrame(row['EVIDENCE']), hide_index=True)
                         st.divider()
             else:
-                st.warning("Aucune QC générée.")
-
-# --- TAB 2 : CRASH TEST ---
-with tab_test:
-    st.subheader("B. Zone de Test (Mapping Enoncé -> QC)")
-    
-    if 'df_qc' in st.session_state:
-        col_up, col_param = st.columns([2, 1])
-        with col_up:
-            st.file_uploader("Télécharger un sujet (PDF/Image)", type=["pdf", "png", "jpg"])
-        with col_param:
-            doc_type = st.selectbox("Type Document", ["DST", "BAC", "EXO"])
-            btn_test = st.button("ANALYSER L'ÉNONCÉ")
-        
-        if btn_test:
-            st.divider()
-            df_res = analyze_external_subject(doc_type, st.session_state['df_qc'])
-            
-            # Stats
-            nb_match = len(df_res[df_res["Statut"] == "✅ MATCH"])
-            taux = (nb_match / len(df_res)) * 100
-            st.metric("Taux de Couverture", f"{taux:.0f}%")
-            
-            def color_status(val):
-                color = '#dcfce7' if val == '✅ MATCH' else '#fee2e2'
-                return f'background-color: {color}; color: black'
-
-            st.dataframe(
-                df_res.style.map(color_status, subset=['Statut']),
-                use_container_width=True
-            )
+                st.warning("Aucune QC pour ces chapitres.")
     else:
-        st.warning("Veuillez lancer l'usine d'abord.")
+        st.info("Configurez le périmètre à gauche et lancez l'usine.")
