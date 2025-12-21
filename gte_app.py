@@ -12,7 +12,7 @@ st.title("🛡️ SMAXIA GRANULO TEST ENGINE (GTE-T1)")
 st.markdown("""
 **Statut :** BANC DE TEST INDUSTRIEL (SANDBOX)  
 **Objectif :** Valider la Loi de Réduction Axiomatique (15 QC / Chapitre)  
-[cite_start]**Critère Booléen :** Couverture ≥ 95% des Qi injectées [cite: 575]
+**Critère Booléen :** Couverture >= 95% des Qi injectées
 """)
 
 # =============================================================================
@@ -37,7 +37,6 @@ if uploaded_files:
     
     with st.spinner('🚀 INITIALISATION DU MOTEUR GRANULO...'):
         # 1. INGESTION & HACHAGE ATOMIQUE
-        all_text_debug = []
         for file in uploaded_files:
             text = ""
             if file.type == "application/pdf":
@@ -47,8 +46,7 @@ if uploaded_files:
             else:
                 text = file.read().decode("utf-8")
             
-            # Simulation : Découpage par question (simplifié pour le test)
-            # Dans la réalité, c'est fait par P5 Harvester
+            # Simulation : Découpage par question
             segments = text.split("Exercice")
             for seg in segments:
                 if len(seg) > 20:
@@ -87,14 +85,15 @@ if uploaded_files:
 
     # DÉTAIL D'UNE QC (INSPECTION F1/ARI)
     st.subheader("🔍 INSPECTION ATOMIQUE")
-    selected_qc_id = st.selectbox("Choisir une QC pour inspection F1/ARI", [qc.id for qc in qc_results])
-    
-    if selected_qc_id:
-        target = next(qc for qc in qc_results if qc.id == selected_qc_id)
-        st.json(target.to_dict())
-        st.markdown(f"**Texte Canonique :** {target.canonical_text}")
-        if target.is_black_swan:
-            st.warning("⚠️ Ceci est la QC #15 (Transposition). Elle capture les questions hors-cluster.")
+    qc_ids = [qc.id for qc in qc_results]
+    if qc_ids:
+        selected_qc_id = st.selectbox("Choisir une QC pour inspection F1/ARI", qc_ids)
+        if selected_qc_id:
+            target = next(qc for qc in qc_results if qc.id == selected_qc_id)
+            st.json(target.to_dict())
+            st.markdown(f"**Texte Canonique :** {target.canonical_text}")
+            if target.is_black_swan:
+                st.warning("⚠️ Ceci est la QC #15 (Transposition). Elle capture les questions hors-cluster.")
 
 else:
     st.write("👈 Veuillez charger des sujets dans la barre latérale pour lancer le test.")
