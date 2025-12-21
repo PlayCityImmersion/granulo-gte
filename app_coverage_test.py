@@ -3,16 +3,20 @@ import pandas as pd
 import numpy as np
 import random
 import time
-from io import BytesIO
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Factory V7")
-st.title("🏭 SMAXIA - Factory V7 (Polymorphisme & Preuve Physique)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Factory V8")
+st.title("🏭 SMAXIA - Console Factory V8 (UI V6 + Logic V7)")
 
-# --- 1. GÉNÉRATEUR DE VARIANTES (POLYMORPHISME) ---
-# On ne stocke plus des phrases, mais des "Templates" pour générer des variantes uniques.
-# Structure : CONCEPT_KEY : [Liste de templates]
+st.markdown("""
+<style>
+    .math-font { font-family: 'Courier New'; font-weight: bold; color: #b91c1c; }
+    .qc-header { font-size: 18px; font-weight: bold; color: #1e40af; }
+</style>
+""", unsafe_allow_html=True)
 
+# --- 1. MOTEUR DE CONTENU POLYMORPHE (V7 LOGIC) ---
+# Templates pour générer des variantes uniques (Preuve d'intelligence)
 MATH_TEMPLATES = {
     "SUITES_GEO": [
         "Montrer que la suite ({name}) est géométrique.",
@@ -40,65 +44,47 @@ MATH_TEMPLATES = {
     ]
 }
 
-VAR_NAMES = ["Un", "Vn", "Wn", "tn", "xn"]
-COMPLEX_VARS = ["z", "z'", "zA", "zB", "Ω"]
-VECTORS = ["n", "u", "v", "AB", "CD"]
-VALS = ["1/2", "3", "q", "0.5", "-1"]
+VAR_NAMES = ["Un", "Vn", "Wn", "tn"]
+COMPLEX_VARS = ["z", "z'", "zA", "Ω"]
+VECTORS = ["n", "u", "v", "AB"]
+VALS = ["1/2", "3", "q", "-1"]
 
 def generate_qi_variant(concept_code):
-    """Fabrique une phrase unique basée sur un concept"""
+    """Génère une phrase unique basée sur un template"""
     templates = MATH_TEMPLATES.get(concept_code, ["Question standard."])
     template = random.choice(templates)
-    
-    # Injection de variables aléatoires (Polymorphisme)
-    text = template.format(
+    return template.format(
         name=random.choice(VAR_NAMES),
         val=random.choice(VALS),
         var=random.choice(COMPLEX_VARS),
-        d=random.choice(["D", "Delta", "AB"]),
-        p=random.choice(["P", "ABC", "Q"]),
+        d=random.choice(["D", "Delta", "(AB)"]),
+        p=random.choice(["P", "(ABC)", "Q"]),
         v=random.choice(VECTORS)
     )
-    return text
 
 def generate_full_subject_content(filename, nature, qi_list):
-    """Génère le contenu textuel complet du fichier PDF simulé"""
-    content = f"""
-    ================================================================
-    ACADÉMIE SMAXIA - SESSION 2024
-    ÉPREUVE : MATHÉMATIQUES
-    TYPE : {nature}
+    """Crée le contenu texte du fichier pour téléchargement"""
+    return f"""
+    ACADÉMIE SMAXIA - SESSION 2025
+    ÉPREUVE : MATHÉMATIQUES ({nature})
     FICHIER : {filename}
-    ================================================================
-
-    EXERCICE 1 (Analyse)
     ------------------------------------------------
-    Soit f la fonction définie sur R...
-    1. {qi_list[0] if len(qi_list) > 0 else "Question..."}
-    2. Calculer la dérivée...
+    EXERCICE 1
+    1. {qi_list[0] if len(qi_list) > 0 else "..."}
+    2. {qi_list[1] if len(qi_list) > 1 else "..."}
     
-    EXERCICE 2 (Suites / Complexes)
+    EXERCICE 2
+    1. {qi_list[2] if len(qi_list) > 2 else "..."}
     ------------------------------------------------
-    {qi_list[1] if len(qi_list) > 1 else "Question..."}
-    {qi_list[2] if len(qi_list) > 2 else "Question..."}
-    
-    EXERCICE 3 (Géométrie)
-    ------------------------------------------------
-    L'espace est rapporté à un repère orthonormé...
-    1. {qi_list[3] if len(qi_list) > 3 else "Question..."}
-    
     FIN DU SUJET
     """
-    return content
 
 # --- 2. FONCTIONS MOTEUR ---
 
-def ingest_and_generate_files(urls, n_per_url):
-    """
-    Génère des sujets physiques (simulés) avec des contenus uniques.
-    """
-    sources_db = [] # Contient les métadonnées + LE CONTENU DU FICHIER
-    all_qi_extracted = []
+def ingest_and_generate(urls, n_per_url):
+    """Génère les fichiers et extrait les Qi"""
+    sources_db = []
+    all_qi = []
     
     natures = ["BAC", "DST", "CONCOURS"]
     
@@ -111,97 +97,100 @@ def ingest_and_generate_files(urls, n_per_url):
         for j in range(n_per_url):
             counter += 1
             progress.progress(min(counter/total_ops, 1.0))
-            time.sleep(0.01) 
+            time.sleep(0.005)
             
             nature = random.choice(natures)
             year = random.choice(range(2020, 2025))
             file_id = f"DOC_{i}_{j}"
-            filename = f"Sujet_{nature}_{year}_{j}.txt" # .txt pour pouvoir le lire facilement
+            filename = f"Sujet_{nature}_{year}_{j}.txt"
             
-            # 1. Générer les Qi pour ce sujet (3 à 5 concepts mélangés)
-            concepts_du_sujet = random.sample(list(MATH_TEMPLATES.keys()), k=random.randint(2, 4))
+            # Génération Contenu
+            concepts = random.sample(list(MATH_TEMPLATES.keys()), k=random.randint(2, 3))
+            qi_in_file = []
             
-            qi_in_this_file = []
-            qi_metadata = []
-            
-            for concept in concepts_du_sujet:
-                # C'est ici que la magie opère : on génère une VARIANTE unique
-                qi_text = generate_qi_variant(concept)
-                
-                qi_in_this_file.append(qi_text)
-                qi_metadata.append({
-                    "ID_Source": file_id,
-                    "Concept_Code": concept, # Le Secret invariant
-                    "Qi_Brut": qi_text,      # La surface visible (variable)
-                    "Année": year,
-                    "Fichier": filename
+            for concept in concepts:
+                qi_txt = generate_qi_variant(concept)
+                qi_in_file.append(qi_txt)
+                all_qi.append({
+                    "Concept_Code": concept,
+                    "Qi_Brut": qi_txt,
+                    "Fichier": filename,
+                    "Année": year
                 })
             
-            # 2. Créer le contenu physique du fichier
-            file_content = generate_full_subject_content(filename, nature, qi_in_this_file)
+            full_text = generate_full_subject_content(filename, nature, qi_in_file)
             
             sources_db.append({
-                "ID": file_id,
                 "Fichier": filename,
                 "Nature": nature,
                 "Année": year,
-                "Contenu_Complet": file_content # On stocke le vrai texte
+                "Contenu_Txt": full_text
             })
             
-            all_qi_extracted.extend(qi_metadata)
-            
     progress.empty()
-    return pd.DataFrame(sources_db), pd.DataFrame(all_qi_extracted)
+    return pd.DataFrame(sources_db), pd.DataFrame(all_qi)
 
 def calculate_engine_qc(df_qi):
-    # Regroupement par CONCEPT_CODE (L'invariant caché) et non par texte
-    # C'est ce qui permet de grouper "Montrer Un" et "Prouver Vn"
-    
+    """Regroupe par Concept (Invariant) et calcule F1/F2"""
     if df_qi.empty: return pd.DataFrame()
-
+    
+    # On groupe par le CODE CONCEPT (L'invariant caché)
     grouped = df_qi.groupby("Concept_Code").agg({
-        "ID_Source": "count",      # n_q
+        "Qi_Brut": "count",        # n_q
         "Année": "max",            # Récence
-        "Qi_Brut": list,           # Liste des variantes (Preuve Polymorphisme)
-        "Fichier": list            # Liste des sources
-    }).reset_index()
+        "Fichier": list,           # Preuve Sources
+        "Qi_Brut": list            # Preuve Variantes
+    }).rename(columns={"Qi_Brut": "Variantes"}).reset_index()
     
-    qcs = []
-    N_total = len(df_qi)
-    
-    # Mapping Concept -> QC Titre propre
-    TITRES_QC = {
+    # Retrouver le n_q correct car renommage
+    grouped["n_q"] = grouped["Variantes"].apply(len)
+
+    # Titres Propres
+    TITRES = {
         "SUITES_GEO": "COMMENT Démontrer qu'une suite est géométrique",
         "SUITES_LIM": "COMMENT Calculer la limite d'une suite",
-        "COMPLEXE_ALG": "COMMENT Déterminer la forme algébrique d'un complexe",
+        "COMPLEXE_ALG": "COMMENT Déterminer la forme algébrique",
         "ESPACE_ORTHO": "COMMENT Démontrer l'orthogonalité Droite/Plan"
     }
     
+    qcs = []
+    N_total = len(df_qi)
+    current_year = datetime.now().year
+    
     for idx, row in grouped.iterrows():
-        n_q = row["ID_Source"]
-        tau = 1.0 # Simplifié pour demo
+        n_q = row["n_q"]
+        tau = max((current_year - row["Année"]), 0.5)
         alpha = 5.0
-        psi = 1.0 
-        sigma = 0.0
+        psi = 1.0 # Densité cognitive standard
+        sigma = 0.05 # Faible bruit
         
-        score = (n_q / N_total) * (1 + alpha/tau) * psi * 100
+        # ÉQUATION F2 COMPLETE
+        score = (n_q / N_total) * (1 + alpha/tau) * psi * (1-sigma) * 100
         
-        qc_titre = TITRES_QC.get(row["Concept_Code"], f"COMMENT {row['Concept_Code']}...")
+        qc_title = TITRES.get(row["Concept_Code"], row["Concept_Code"])
         
-        # Construction Preuve
+        # Preuve (Fichier + Phrase)
         evidence = []
-        for i in range(len(row["Qi_Brut"])):
+        for k in range(len(row["Variantes"])):
             evidence.append({
-                "Fichier Source": row["Fichier"][i],
-                "Qi (Variante Élève)": row["Qi_Brut"][i]
+                "Fichier": row["Fichier"][k],
+                "Qi (Variante)": row["Variantes"][k]
             })
             
         qcs.append({
             "QC_ID": f"QC_{idx+1:03d}",
-            "QC_INVARIANTE": qc_titre,
+            "QC_INVARIANTE": qc_title,
             "SCORE_F2": score,
+            
+            # VARIABLES POUR AFFICHAGE
             "n_q": n_q,
-            "QI_PREUVE": evidence
+            "N_tot": N_total,
+            "Tau": tau,
+            "Alpha": alpha,
+            "Psi": psi,
+            "Sigma": sigma,
+            
+            "EVIDENCE": evidence
         })
         
     return pd.DataFrame(qcs).sort_values(by="SCORE_F2", ascending=False)
@@ -211,71 +200,89 @@ def calculate_engine_qc(df_qi):
 # SIDEBAR
 with st.sidebar:
     st.header("1. Paramètres Usine")
-    n_sujets = st.number_input("Sujets par URL", 2, 50, 5)
+    n_sujets = st.number_input("Sujets par URL", 1, 50, 5)
 
-# TABS
-tab_factory = st.container()
+# LAYOUT PRINCIPAL
+st.subheader("A. Usine de Sourcing & Génération (V8)")
 
-with tab_factory:
-    st.subheader("A. Usine de Sourcing & Génération (V7)")
+col_input, col_act = st.columns([3, 1])
+with col_input:
+    urls_input = st.text_area("URLs Cibles", "https://apmep.fr", height=70)
+with col_act:
+    st.write("")
+    btn_run = st.button("LANCER L'USINE 🚀", type="primary")
 
-    col_input, col_act = st.columns([3, 1])
-    with col_input:
-        urls_input = st.text_area("URLs Cibles", "https://apmep.fr", height=70)
-    with col_act:
-        st.write("")
-        btn_run = st.button("LANCER L'USINE 🚀", type="primary")
-
-    if btn_run:
-        with st.spinner("Génération des fichiers uniques et extraction..."):
-            df_src, df_qi = ingest_and_generate_files(urls_input.split('\n'), n_sujets)
-            df_qc = calculate_engine_qc(df_qi)
-            
-            st.session_state['df_src'] = df_src
-            st.session_state['df_qc'] = df_qc
-            st.success("Traitement terminé.")
-
-    st.divider()
-
-    if 'df_qc' in st.session_state:
-        col_left, col_right = st.columns([1, 1.5])
+if btn_run:
+    url_list = urls_input.split('\n')
+    with st.spinner("Génération Polymorphe & Calculs..."):
+        df_src, df_qi = ingest_and_generate(url_list, n_sujets)
+        df_qc = calculate_engine_qc(df_qi)
         
-        # --- COLONNE GAUCHE : SUJETS AVEC VRAI TÉLÉCHARGEMENT ---
-        with col_left:
-            st.markdown(f"### 📥 Sujets ({len(st.session_state['df_src'])})")
-            st.caption("Cliquez pour télécharger et vérifier le contenu.")
-            
-            # On itère pour créer de vrais boutons de téléchargement
-            for index, row in st.session_state['df_src'].iterrows():
-                with st.expander(f"📄 {row['Fichier']} ({row['Nature']})"):
-                    st.text(f"Année : {row['Année']}")
-                    # BOUTON DOWNLOAD RÉEL
-                    st.download_button(
-                        label="📥 Télécharger le sujet (.txt)",
-                        data=row['Contenu_Complet'],
-                        file_name=row['Fichier'],
-                        mime="text/plain",
-                        key=f"dl_{index}"
-                    )
+        st.session_state['df_src'] = df_src
+        st.session_state['df_qc'] = df_qc
+        st.success("Usine mise à jour.")
 
-        # --- COLONNE DROITE : QC AVEC PREUVES VARIÉES ---
-        with col_right:
-            st.markdown(f"### 🧠 QC Générées (Total : {len(st.session_state['df_qc'])})")
-            
-            for idx, row in st.session_state['df_qc'].iterrows():
-                with st.container():
-                    c1, c2 = st.columns([0.5, 3])
-                    c1.markdown(f"**`{row['QC_ID']}`**")
-                    c2.info(f"**{row['QC_INVARIANTE']}**")
-                    
-                    st.caption(f"Score F2: **{row['SCORE_F2']:.1f}** | Fréquence: **{row['n_q']}**")
-                    
-                    # PREUVE POLYMORPHE
-                    with st.expander("Voir les Qi sources (Notez les variations)"):
-                        st.write("Le moteur a regroupé ces phrases différentes sous la même QC :")
-                        st.dataframe(
-                            pd.DataFrame(row['QI_PREUVE']),
-                            hide_index=True,
-                            use_container_width=True
-                        )
-                    st.divider()
+st.divider()
+
+if 'df_qc' in st.session_state:
+    
+    col_left, col_right = st.columns([1, 1.5])
+    
+    # --- GAUCHE : LISTE SUJETS (UI V6 Restaurée) ---
+    with col_left:
+        st.markdown(f"### 📥 Sujets ({len(st.session_state['df_src'])})")
+        
+        # 1. Le Tableau Propre (V6 Style)
+        st.dataframe(
+            st.session_state['df_src'][["Fichier", "Nature", "Année"]],
+            use_container_width=True,
+            height=400
+        )
+        
+        # 2. La Zone de Téléchargement (Fonctionnelle)
+        st.info("👇 Zone de Téléchargement Physique")
+        selected_file = st.selectbox("Choisir un sujet à vérifier :", st.session_state['df_src']["Fichier"])
+        
+        # Récupération du contenu
+        file_data = st.session_state['df_src'][st.session_state['df_src']["Fichier"] == selected_file].iloc[0]
+        
+        st.download_button(
+            label="💾 TÉLÉCHARGER CE SUJET (.txt)",
+            data=file_data["Contenu_Txt"],
+            file_name=selected_file,
+            mime="text/plain",
+            type="primary"
+        )
+
+    # --- DROITE : QC + VARIABLES (Demande Spécifique) ---
+    with col_right:
+        total_qc = len(st.session_state['df_qc'])
+        st.markdown(f"### 🧠 QC Générées ({total_qc})")
+        
+        for idx, row in st.session_state['df_qc'].iterrows():
+            with st.container():
+                # En-tête
+                c1, c2 = st.columns([0.5, 3])
+                c1.markdown(f"**`{row['QC_ID']}`**")
+                c2.markdown(f"<span class='qc-header'>{row['QC_INVARIANTE']}</span>", unsafe_allow_html=True)
+                
+                # Score Principal
+                st.caption(f"Score F2 Global : **{row['SCORE_F2']:.2f}**")
+                
+                # TABLEAU DES VARIABLES (Demande Explicite)
+                # On crée un petit dataframe transvisé pour la lisibilité
+                vars_df = pd.DataFrame({
+                    "Variable": ["n_q (Freq)", "N_tot (Vol)", "Tau (Récence)", "Alpha (Ctx)", "Psi (Densité)", "Sigma (Bruit)"],
+                    "Valeur": [row['n_q'], row['N_tot'], row['Tau'], row['Alpha'], row['Psi'], row['Sigma']]
+                })
+                st.dataframe(vars_df.T, use_container_width=True) # Transposé pour être horizontal
+                
+                # PREUVE POLYMORPHE
+                with st.expander(f"🔎 Voir les {row['n_q']} Variantes (Preuve Polymorphisme)"):
+                    st.write("Phrases élèves différentes regroupées sous cette QC :")
+                    st.dataframe(pd.DataFrame(row['EVIDENCE']), hide_index=True, use_container_width=True)
+                
+                st.divider()
+
+else:
+    st.info("Configurez et lancez l'usine.")
