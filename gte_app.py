@@ -4,211 +4,209 @@ import pdfplumber
 import re
 import numpy as np
 
-# --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Moteur Invariant P6")
+# --- CONFIGURATION SMAXIA ---
+st.set_page_config(layout="wide", page_title="SMAXIA - Moteur Congruence V5")
 st.markdown("""
 <style>
-    .qc-header { font-size: 24px; font-weight: bold; color: #1E3A8A; }
-    .stDataFrame { border: 1px solid #ccc; }
+    .stDataFrame { border: 1px solid #444; }
+    .highlight { color: #1E3A8A; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 1. BIBLIOTHÈQUE D'ABSTRACTION (QC INVARIANTES) ---
-# C'est ici qu'on transforme le spécifique (Qi) en canonique (QC).
-# On supprime les variables (A, f(x), lambda) pour ne garder que la compétence.
-
-QC_LIBRARY = {
-    # ANALYSE
-    "LIMIT_INF": {
-        "pattern": r"(limite.*(infini|\+∞|-\∞)|tend vers.*(infini|\+∞|-\∞))",
+# --- 1. MATRICE DE DÉFINITION QC (CERVEAU SMAXIA) ---
+# Structure : QC Invariante = Liste fermée de Déclencheurs + Liste de Mots-Clés
+QC_MATRIX = {
+    # --- ANALYSE ---
+    "ANA_LIM_01": {
+        "Chapitre": "ANALYSE - LIMITES",
         "QC_Invariant": "COMMENT Calculer une limite en l'infini",
-        "Chapitre": "ANALYSE - LIMITES"
+        "Triggers": ["calculer", "déterminer", "étudier", "en déduire"], # Max 4-5
+        "Keywords": ["limite", "tend vers", "infini", "+∞", "-∞", "asymptote"]
     },
-    "PRIMITIVE": {
-        "pattern": r"(primitive|intégrale définie)",
+    "ANA_PRIM_02": {
+        "Chapitre": "ANALYSE - INTÉGRATION",
         "QC_Invariant": "COMMENT Déterminer une primitive d'une fonction",
-        "Chapitre": "ANALYSE - INTÉGRATION"
+        "Triggers": ["déterminer", "montrer", "vérifier", "justifier"],
+        "Keywords": ["primitive", "intégrale", "f(x)"]
     },
-    "DERIVATION": {
-        "pattern": r"(dérivée|variations|croissante|décroissante)",
+    "ANA_VAR_03": {
+        "Chapitre": "ANALYSE - DÉRIVATION",
         "QC_Invariant": "COMMENT Étudier les variations d'une fonction",
-        "Chapitre": "ANALYSE - DÉRIVATION"
+        "Triggers": ["étudier", "dresser", "démontrer", "justifier"],
+        "Keywords": ["variations", "dérivée", "croissante", "décroissante", "tableau"]
     },
-    "RECURRENCE": {
-        "pattern": r"(récurrence|initialisation|hérédité)",
+    "ANA_REC_04": {
+        "Chapitre": "ANALYSE - SUITES",
         "QC_Invariant": "COMMENT Démontrer une propriété par récurrence",
-        "Chapitre": "ANALYSE - SUITES"
+        "Triggers": ["démontrer", "montrer", "prouver"],
+        "Keywords": ["récurrence", "initialisation", "hérédité", "entier naturel"]
     },
-    # GÉOMÉTRIE
-    "PLAN_ESPACE": {
-        "pattern": r"(plan|vecteur normal|orthogonal|coplanaires)",
-        "QC_Invariant": "COMMENT Caractériser la position relative de droites et plans",
-        "Chapitre": "GÉOMÉTRIE DANS L'ESPACE"
-    },
-    # PROBABILITÉS
-    "LOI_NORMALE": {
-        "pattern": r"(loi normale|espérance|écart-type)",
-        "QC_Invariant": "COMMENT Calculer des probabilités avec une loi continue",
-        "Chapitre": "PROBABILITÉS"
+    # --- GÉOMÉTRIE ---
+    "GEO_POS_01": {
+        "Chapitre": "GÉOMÉTRIE ESPACE",
+        "QC_Invariant": "COMMENT Caractériser la position relative (Droites/Plans)",
+        "Triggers": ["démontrer", "caractériser", "déterminer", "justifier"],
+        "Keywords": ["orthogonal", "coplanaires", "sécants", "parallèles", "vecteur normal"]
     }
 }
 
-# --- 2. MOTEUR D'EXTRACTION & NORMALISATION ---
+# --- 2. MOTEUR D'EXTRACTION (PDF) ---
 def extract_qi_segments(file):
     text = ""
     with pdfplumber.open(file) as pdf:
         for page in pdf.pages:
             extract = page.extract_text()
             if extract: text += extract + "\n"
-    
-    # Nettoyage des sauts de ligne intempestifs
     text = text.replace('\n', ' ')
-    
-    # Découpage par instructions (Phrase terminant par . ? ou :)
+    # Atomisation par phrase
     raw_segments = re.split(r'[.;?!]', text)
     return [s.strip() for s in raw_segments if len(s) > 20]
 
-# --- 3. CALCULATEUR SCORE SMAXIA (FORMULE EXACTE) ---
-def compute_smaxia_score(qi_text, qc_context_keywords):
-    # Variables de l'équation
+# --- 3. CALCULATEUR SCORE & PREUVE ---
+def compute_congruity(qi_text, trigger_found, keyword_found):
     words = re.findall(r'\w+', qi_text.lower())
     clean_words = [w for w in words if len(w) > 2]
     
-    # 1. n_q (Nombre de termes significatifs dans le Qi)
+    # --- VARIABLES DE L'ÉQUATION SMAXIA ---
+    
+    # 1. n_q (Volume sémantique utile)
     n_q = len(clean_words)
     
-    # 2. N_total (Normalisation locale - fixée pour comparatif)
-    N_total = 30.0 
+    # 2. N_total (Constante de Normalisation Globale)
+    # Fixée à 40 (taille moyenne idéale d'une phrase complexe de bac)
+    N_total = 40.0 
     
-    # 3. Alpha (Delta) : Pertinence contextuelle par rapport au Chapitre
-    # On regarde si les mots du Qi matchent le contexte
-    matches = sum(1 for w in clean_words if w in qc_context_keywords)
-    Alpha = matches * 1.0
-    
-    # 4. Tau_rec (Constante de réglage)
+    # 3. Tau_rec (Constante de Récurrence/Calibration)
+    # Fixée à 5.0 pour le modèle actuel
     Tau_rec = 5.0
     
-    # 5. Psi_q (Densité sémantique : Mots uniques / Mots totaux)
-    unique = set(clean_words)
-    Psi_q = len(unique) / n_q if n_q > 0 else 0
+    # 4. Alpha (Pertinence Contextuelle)
+    # Si le Trigger ET le Keyword sont proches dans la phrase, Alpha augmente
+    # Pour simplifier ici : 1.0 si présence, 0.0 sinon
+    Alpha = 1.0 
     
-    # 6. Sigma (Bruit/Pénalité)
-    # Mots interdits dans un Qi propre (bruit administratif)
-    noise_list = ['candidat', 'copie', 'sujet', 'page', 'points', 'annexe']
+    # 5. Psi (Densité d'Information)
+    unique_words = set(clean_words)
+    Psi = len(unique_words) / n_q if n_q > 0 else 0
+    
+    # 6. Sigma (Pénalité de Bruit)
+    noise_list = ['candidat', 'copie', 'points', 'annexe', 'sujet', 'calculatrice']
     noise_count = sum(1 for w in clean_words if w in noise_list)
-    Sigma = noise_count * 0.2
+    Sigma = noise_count * 0.15
     if Sigma > 0.9: Sigma = 0.9
 
-    # --- L'ÉQUATION SMAXIA ---
-    # Score = (n_q / N_total) * [1 + (Alpha / Tau)] * Psi * product(1-Sigma)
+    # --- ÉQUATION FINALE ---
+    # Score = (n_q/N_tot) * [1 + Alpha/Tau] * Psi * (1-Sigma)
     
     term_vol = (n_q / N_total)
     term_ctx = (1 + (Alpha / Tau_rec))
     term_penal = (1 - Sigma)
     
-    Score = term_vol * term_ctx * Psi_q * term_penal * 10 # *10 pour lisibilité
+    Score = term_vol * term_ctx * Psi * term_penal * 10 
     
     return {
         "n_q": n_q,
         "N_tot": N_total,
         "Alpha": Alpha,
-        "Tau": Tau_rec,
-        "Psi": round(Psi_q, 3),
+        "Tau_rec": Tau_rec,
+        "Psi": round(Psi, 3),
         "Sigma": round(Sigma, 2),
         "SCORE_FINAL": round(Score, 4)
     }
 
-# --- 4. CLASSIFICATION & ABSTRACTION ---
-def process_p6_pipeline(files):
+# --- 4. PIPELINE DE CONGRUENCE ---
+def run_smaxia_engine(files):
     results = []
-    
-    # 1. Lecture de tous les fichiers
     all_qi = []
-    for f in files:
-        all_qi.extend(extract_qi_segments(f))
-        
-    # 2. Matching QC (Abstraction)
+    for f in files: all_qi.extend(extract_qi_segments(f))
+    
     for qi in all_qi:
         qi_lower = qi.lower()
-        matched = False
+        matched_qc = False
         
-        for key, config in QC_LIBRARY.items():
-            if re.search(config["pattern"], qi_lower):
-                # QC DÉTECTÉE !
-                # On calcule le score pour voir si ce Qi est un bon représentant
-                # On génère des mots clés contextuels basés sur le pattern
-                ctx_keywords = config["pattern"].replace('|', ' ').replace('(', '').replace(')', '').split()
-                
-                metrics = compute_smaxia_score(qi, ctx_keywords)
-                
-                results.append({
-                    "Matière": "MATHÉMATIQUES", # Auto-détection à améliorer plus tard
-                    "Chapitre": config["Chapitre"],
-                    "QC_Invariant": config["QC_Invariant"], # LE VRAI QC SANS VARIABLES
-                    "Qi_Source": qi,
-                    **metrics # Injection des variables de l'équation
-                })
-                matched = True
-                break # Une Qi appartient à une seule QC prioritaire
-        
-        if not matched:
-            # Rejet (Angle mort ou bruit)
-            pass
+        # On scanne la Matrice SMAXIA
+        for code, defs in QC_MATRIX.items():
             
+            # A. RECHERCHE DU DÉCLENCHEUR (TRIGGER)
+            found_trigger = None
+            for trig in defs["Triggers"]:
+                # On cherche le mot exact (boundary \b)
+                if re.search(rf"\b{trig}\b", qi_lower):
+                    found_trigger = trig
+                    break
+            
+            # B. RECHERCHE DU MOT-CLÉ (KEYWORD)
+            found_keyword = None
+            if found_trigger: # On ne cherche le concept que si l'action est identifiée
+                for keyw in defs["Keywords"]:
+                    if keyw in qi_lower:
+                        found_keyword = keyw
+                        break
+            
+            # C. VALIDATION DU COUPLE (CONGRUENCE)
+            if found_trigger and found_keyword:
+                # C'est un MATCH ! On calcule la preuve mathématique.
+                metrics = compute_congruity(qi, found_trigger, found_keyword)
+                
+                # On ne garde que les scores pertinents (> 0.5)
+                if metrics["SCORE_FINAL"] > 0.5:
+                    results.append({
+                        "Chapitre": defs["Chapitre"],
+                        "QC_Invariant": defs["QC_Invariant"],
+                        "Déclencheur (T)": found_trigger.upper(),
+                        "Mot-Clé (K)": found_keyword.upper(),
+                        "Qi_Source": qi,
+                        **metrics # Injection des variables n_q, N_tot, Tau...
+                    })
+                    matched_qc = True
+                    break # Priorité au premier match fort
+                    
     return pd.DataFrame(results)
 
 # --- INTERFACE ---
-st.title("🛡️ SMAXIA PROD - Matrice QC Invariante")
-st.markdown("### Mapping : [Matière] > [Chapitre] > [QC Invariante] > [Sources Qi]")
+st.title("🛡️ SMAXIA PROD - Audit de Congruence (V5)")
+st.markdown("### Preuve d'Alignement : [Trigger] + [Mot-Clé] ➔ [QC] (Validé par l'Équation)")
 
 uploaded_files = st.file_uploader("Injecter PDF Sujets", type=['pdf'], accept_multiple_files=True)
 
 if uploaded_files:
-    df = process_p6_pipeline(uploaded_files)
+    df = run_smaxia_engine(uploaded_files)
     
     if not df.empty:
-        # Filtrer les scores trop faibles (Bruit)
-        df_valid = df[df['SCORE_FINAL'] > 0.5]
+        # Tri pour présentation
+        chapters = sorted(df['Chapitre'].unique())
         
-        # --- AFFICHAGE HIÉRARCHIQUE ---
-        
-        # 1. Grouper par CHAPITRE
-        chapters = df_valid['Chapitre'].unique()
-        
-        for chap in sorted(chapters):
-            st.divider()
-            st.markdown(f"## 📘 CHAPITRE : {chap}")
+        for chap in chapters:
+            st.markdown("---")
+            st.header(f"📘 {chap}")
             
-            # 2. Grouper par QC INVARIANTE dans le chapitre
-            df_chap = df_valid[df_valid['Chapitre'] == chap]
-            qcs = df_chap['QC_Invariant'].unique()
+            df_chap = df[df['Chapitre'] == chap]
+            unique_qcs = df_chap['QC_Invariant'].unique()
             
-            for qc in qcs:
+            for qc in unique_qcs:
                 df_qc = df_chap[df_chap['QC_Invariant'] == qc]
                 
-                # En-tête de la QC
-                st.markdown(f"""
-                <div style="background-color:#f0f2f6; padding:10px; border-radius:5px; margin-top:10px;">
-                    <span style="font-size:18px; font-weight:bold;">🗝️ {qc}</span>
-                    <span style="float:right; color:grey;">{len(df_qc)} Qi liées</span>
-                </div>
-                """, unsafe_allow_html=True)
+                # Header QC
+                st.info(f"🗝️ **QC CIBLE :** {qc}")
                 
-                # Tableau des variables (Preuve Mathématique)
+                # TABLEAU DE PREUVE (Variables Visibles)
                 st.dataframe(
                     df_qc[[
-                        "SCORE_FINAL", 
-                        "n_q", "Psi", "Alpha", "Tau", "Sigma", # Les variables de l'équation
-                        "Qi_Source"
+                        "Déclencheur (T)", "Mot-Clé (K)", # La preuve sémantique
+                        "Qi_Source", 
+                        "SCORE_FINAL",
+                        "n_q", "N_tot", "Tau_rec", "Psi", "Sigma" # La preuve mathématique
                     ]].sort_values(by="SCORE_FINAL", ascending=False),
                     column_config={
-                        "Qi_Source": st.column_config.TextColumn("Source (Exercice Spécifique)", width="large"),
-                        "SCORE_FINAL": st.column_config.ProgressColumn("Pertinence", format="%.2f", min_value=0, max_value=5),
-                        "Sigma": st.column_config.NumberColumn("Sigma (Bruit)", format="%.2f"),
+                        "Qi_Source": st.column_config.TextColumn("Source (Contexte Élève)", width="large"),
+                        "SCORE_FINAL": st.column_config.ProgressColumn("Score", format="%.3f", min_value=0, max_value=3),
+                        "Déclencheur (T)": st.column_config.TextColumn("Trigger", width="small"),
+                        "Mot-Clé (K)": st.column_config.TextColumn("Concept", width="small"),
+                        "N_tot": st.column_config.NumberColumn("N_tot", format="%d"),
+                        "Tau_rec": st.column_config.NumberColumn("Tau", format="%.1f"),
                     },
                     use_container_width=True,
                     hide_index=True
                 )
-                
     else:
-        st.warning("Aucune QC identifiée. Les fichiers ne contiennent pas de mots-clés mathématiques reconnus par la bibliothèque SMAXIA actuelle.")
+        st.warning("Aucune congruence détectée. Vérifiez que les PDF contiennent bien des couples [Verbe Action] + [Concept Mathématique] définis dans la Matrice.")
