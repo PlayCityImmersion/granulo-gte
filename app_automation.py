@@ -6,197 +6,233 @@ import random
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console CEO V2")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V3 (Audit)")
 
-# --- 1. BIBLIOTHÈQUE DE CONTENU (GÉNÉRATEUR DE VARIANTES) ---
-# On simule ici que pour une même compétence, les phrases changent légèrement d'une année à l'autre.
-CONTENT_GENERATOR = {
-    "DERIVATION": [
-        "Étudier les variations de la fonction f sur l'intervalle I",
-        "Dresser le tableau de variations complet de g",
-        "Déterminer les variations de la fonction h",
-        "Justifier le sens de variation de la suite (Un)"
-    ],
+st.markdown("""
+<style>
+    .big-score { font-size: 20px; font-weight: bold; color: #2563EB; }
+    .math-var { font-family: 'Courier New'; color: #DC2626; font-weight: bold; }
+    .stDataFrame { border: 1px solid #E5E7EB; }
+</style>
+""", unsafe_allow_html=True)
+
+# --- 1. MOTEUR DE CONTENU INTELLIGENT ---
+# Dictionnaire : [Phrase Élève (Qi)] -> [Verbe Méthode (Pour QC)]
+SMART_CONTENT_DB = {
     "LIMITES": [
-        "Calculer la limite de f en +infini",
-        "Déterminer la limite de la suite (Un) quand n tend vers l'infini",
-        "Quelle est la limite de f en 0 ?",
-        "En déduire l'existence d'une asymptote"
+        ("Quelle est la limite de f en +infini ?", "DÉTERMINER"),
+        ("Calculer la limite quand x tend vers 0.", "CALCULER"),
+        ("En déduire l'existence d'une asymptote.", "DÉDUIRE"),
+        ("Étudier le comportement de f en -infini.", "ÉTUDIER")
+    ],
+    "DERIVATION": [
+        ("Dresser le tableau de variations de f.", "DRESSER"),
+        ("Justifier que la fonction est croissante sur I.", "JUSTIFIER"),
+        ("Calculer la dérivée f'(x).", "CALCULER"),
+        ("Montrer que f admet un maximum.", "MONTRER")
     ],
     "GEOMETRIE": [
-        "Démontrer que la droite (D) est orthogonale au plan (P)",
-        "Prouver que les vecteurs u et v sont orthogonaux",
-        "Déterminer une représentation paramétrique de la droite",
-        "Vérifier que le point A appartient au plan (P)"
-    ],
-    "INTEGRATION": [
-        "Déterminer une primitive F de f sur R",
-        "Calculer l'intégrale I entre a et b",
-        "Montrer que F est une primitive de f",
-        "En déduire l'aire sous la courbe"
+        ("Démontrer que la droite (D) est orthogonale au plan.", "DÉMONTRER"),
+        ("Déterminer une représentation paramétrique.", "DÉTERMINER"),
+        ("Vérifier que le point A appartient au plan.", "VÉRIFIER"),
+        ("Calculer le produit scalaire u.v", "CALCULER")
     ]
 }
 
-# --- 2. FONCTIONS MOTEUR ---
+# --- 2. MOTEUR : CRAWLER & CLASSIFICATEUR ---
 
-def simulate_smart_crawl(url, n_sujets):
-    """
-    Simule la récupération de N sujets.
-    Chaque sujet contient entre 3 et 5 Qi (Exercices).
-    Cela rend N_total réaliste (N_sujets * 4 approx).
-    """
-    crawled_atoms = []
+def simulate_audit_crawl(url, n_sujets):
+    """Simule la récupération et affiche la liste des fichiers"""
+    files_log = []
+    atoms = []
+    
     progress = st.progress(0)
     status = st.empty()
     
-    total_steps = n_sujets
-    
     for i in range(n_sujets):
-        # Simulation visuelle
-        if i % 5 == 0: # On met à jour tous les 5 pour aller vite
-            progress.progress((i+1)/total_steps)
-            status.text(f"Scraping : {url}/sujet_bac_{2024-i%8}_{i}.pdf ... Extraction Qi...")
+        if i % 2 == 0: 
+            progress.progress((i+1)/n_sujets)
+            status.text(f"Fetching : {url}/sujet_{2024-i%5}_{i}.pdf")
+            
+        year = random.choice(range(2018, 2025))
         
-        # GÉNÉRATION DU CONTENU DU SUJET (3 à 5 exercices par sujet)
+        # Création du log "Fichier" pour l'audit CEO
+        files_log.append({
+            "ID_Fichier": f"DOC_{i:03d}",
+            "Nom_Fichier": f"Bac_Sujet_{year}_Maths_Metropole_{i}.pdf",
+            "URL_Sujet": f"{url}/sujets/{year}/sujet_{i}.pdf",
+            "URL_Correction": f"{url}/corriges/{year}/corrige_{i}.pdf",
+            "Année": year,
+            "Statut": "✅ INDEXÉ"
+        })
+        
+        # Génération des Atomes (Qi) dans ce fichier
         nb_exos = random.randint(3, 5)
-        year = random.choice(range(2016, 2025))
-        
         for _ in range(nb_exos):
-            # Choix d'un thème au hasard
-            theme = random.choice(list(CONTENT_GENERATOR.keys()))
-            # Choix d'une formulation (Variante)
-            raw_text = random.choice(CONTENT_GENERATOR[theme])
+            chap = random.choice(list(SMART_CONTENT_DB.keys()))
+            qi_text, verb = random.choice(SMART_CONTENT_DB[chap])
             
-            # Mapping simulé
-            chapitre_map = {
-                "DERIVATION": "Dérivation", "LIMITES": "Limites", 
-                "GEOMETRIE": "Espace", "INTEGRATION": "Intégration"
-            }
-            
-            crawled_atoms.append({
-                "ID_Sujet": f"SUJET_{i:03d}",
+            atoms.append({
+                "ID_Fichier": f"DOC_{i:03d}",
                 "Année": year,
-                "Niveau": "TERMINALE", # Fixé pour l'exemple
+                "Niveau": "TERMINALE",
                 "Matière": "MATHS",
-                "Chapitre": chapitre_map[theme],
-                "Qi_Brut": raw_text,
-                "Déclencheur": raw_text.split()[0].upper() # Ex: CALCULER, ETUDIER
+                "Chapitre": chap.capitalize(), # Ex: Limites
+                "Qi_Brut": qi_text,
+                "Verbe_Methodo": verb # Pour construire la QC propre
             })
             
     progress.empty()
     status.empty()
-    return pd.DataFrame(crawled_atoms)
+    return pd.DataFrame(files_log), pd.DataFrame(atoms)
 
-def process_engine_logic(df_atoms):
-    """
-    Calcule les invariants QC et les scores.
-    """
-    N_total_global = len(df_atoms) # C'est le VRAI volume d'atomes (ex: 85)
+def calculate_smaxia_matrix(df_atoms):
+    N_total_global = len(df_atoms)
     current_year = datetime.now().year
     
-    # 1. Normalisation QC (On regroupe les variantes sous une même bannière "COMMENT")
-    # Dans la vraie vie, c'est le moteur sémantique. Ici on simule par string matching simple.
-    df_atoms["QC_Tag"] = df_atoms["Qi_Brut"].apply(lambda x: "COMMENT " + " ".join(x.split()[:4]) + "...")
+    # Construction de la QC Propre (Invariant)
+    # Règle : COMMENT + [VERBE] + [RESTE DE LA PHRASE NETTOYÉE]
+    # Ici on simplifie pour l'affichage : COMMENT [VERBE] ...
     
-    # 2. Agrégation
-    grouped = df_atoms.groupby(["Niveau", "Chapitre", "QC_Tag"]).agg({
-        "Qi_Brut": list,           # On garde la LISTE des sources (Preuve)
-        "ID_Sujet": "count",       # n_q (Fréquence)
-        "Année": "max"             # Récence max
+    # Groupement
+    grouped = df_atoms.groupby(["Niveau", "Matière", "Chapitre", "Verbe_Methodo"]).agg({
+        "Qi_Brut": list,
+        "ID_Fichier": "count", # n_q
+        "Année": "max"
     }).reset_index()
     
     results = []
     
     for idx, row in grouped.iterrows():
-        n_q = row["ID_Sujet"]
-        qi_list = row["Qi_Brut"]
+        n_q = row["ID_Fichier"]
         
-        # Variables SMAXIA
+        # Calcul Variables
         delta_t = (current_year - row["Année"])
         tau = delta_t if delta_t > 0 else 0.5
         alpha = 5.0
         
-        # Psi moyen des phrases sources
-        psi_avg = np.mean([len(set(s.split()))/len(s.split()) for s in qi_list])
+        # Psi (Densité moyenne des Qi liées)
+        lengths = [len(set(q.split()))/len(q.split()) for q in row["Qi_Brut"]]
+        psi = np.mean(lengths)
         
-        # Calcul Score
+        # Sigma (Bruit - simu faible)
+        sigma = 0.05 
+        
+        # ÉQUATION F2
         freq = n_q / N_total_global
         recency = 1 + (alpha / max(tau, 1))
         
-        score = freq * recency * psi_avg * 100
+        score = freq * recency * psi * (1 - sigma) * 100
+        
+        # Construction Nom QC (Propre)
+        # Ex: COMMENT DÉTERMINER une limite...
+        # On prend la phrase la plus représentative ou générique
+        qc_name = f"COMMENT {row['Verbe_Methodo']} (le concept associé)..."
         
         results.append({
             "NIVEAU": row["Niveau"],
+            "MATIERE": row["Matière"],
             "CHAPITRE": row["Chapitre"],
-            "QC_CIBLE": row["QC_Tag"],
+            "QC_INVARIANTE": qc_name,
             "SCORE_F2": score,
+            # VARIABLES VISIBLES POUR AUDIT
             "n_q": n_q,
             "N_tot": N_total_global,
             "Tau": tau,
-            "Psi": round(psi_avg, 2),
-            "SOURCES_QI": qi_list # La liste pour l'audit
+            "Alpha": alpha,
+            "Psi": round(psi, 2),
+            "Sigma": sigma,
+            "SOURCES": row["Qi_Brut"]
         })
         
     return pd.DataFrame(results).sort_values(by="SCORE_F2", ascending=False)
 
 # --- INTERFACE ---
-st.title("🚀 SMAXIA - Console CEO V2 (Audit Ready)")
+st.title("🛡️ SMAXIA - Audit Console V3")
+st.markdown("### Source Checker & Variable Inspector")
 
-# 1. INPUTS
+# 1. PARAMÈTRES
 with st.container():
     c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
-        url = st.text_input("URL Cible", value="https://www.apmep.fr/")
+        url = st.text_input("URL Source (Sujets + Corrigés)", value="https://www.apmep.fr")
     with c2:
-        n_sujets = st.number_input("Nombre de Sujets PDF", value=20, step=5)
+        n_docs = st.number_input("Nombre de Sujets à Analyser", value=15, step=5)
     with c3:
         st.write("")
-        run = st.button("LANCER L'ANALYSE", type="primary")
+        run = st.button("LANCER L'AUDIT", type="primary")
 
 if run:
     st.divider()
     
-    # 2. PROCESS
-    with st.spinner("Simulation Extraction & Atomisation..."):
-        df_raw = simulate_smart_crawl(url, n_sujets)
-        df_final = process_engine_logic(df_raw)
+    # 2. CRAWLING & AUDIT SOURCES
+    df_files, df_atoms = simulate_audit_crawl(url, n_docs)
     
-    # 3. GLOBAL STATS (KPIs)
-    st.subheader("📊 Métriques Globales")
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Sujets Traités", n_sujets)
-    k2.metric("N_total (Atomes Qi)", len(df_raw), delta="Volume de calcul")
-    k3.metric("QC Identifiées", len(df_final))
+    st.subheader("1. Audit des Sources Chargées")
+    with st.expander(f"📚 Voir la liste des {len(df_files)} fichiers (Sujets & Corrections détectés)", expanded=False):
+        st.dataframe(
+            df_files,
+            column_config={
+                "URL_Sujet": st.column_config.LinkColumn("Lien Sujet"),
+                "URL_Correction": st.column_config.LinkColumn("Lien Corrigé")
+            },
+            use_container_width=True
+        )
+        st.caption(f"Total Qi (Atomes) extraits : **{len(df_atoms)}**")
+
+    # 3. CALCUL MOTEUR
+    df_result = calculate_smaxia_matrix(df_atoms)
     
+    # 4. AFFICHAGE HIÉRARCHIQUE
     st.divider()
+    st.subheader("2. Matrice SMAXIA (Avec Variables F2)")
     
-    # 4. LIVRABLE DÉTAILLÉ
-    st.header("📦 Livrable SMAXIA (Classé par Pertinence)")
+    # Navigation Hiérarchique
+    col_nav1, col_nav2 = st.columns(2)
+    with col_nav1:
+        niv_sel = st.selectbox("Niveau", df_result["NIVEAU"].unique())
+    with col_nav2:
+        # Filtrer matières dispo pour ce niveau
+        mat_sel = st.selectbox("Matière", df_result[df_result["NIVEAU"]==niv_sel]["MATIERE"].unique())
+        
+    # Filtrer données
+    df_filtered = df_result[(df_result["NIVEAU"]==niv_sel) & (df_result["MATIERE"]==mat_sel)]
     
-    # Onglets par Chapitre (plus propre que tout d'un coup)
-    chapitres = df_final["CHAPITRE"].unique()
+    # Onglets Chapitres
+    chapitres = df_filtered["CHAPITRE"].unique()
     tabs = st.tabs(list(chapitres))
     
     for i, chap in enumerate(chapitres):
         with tabs[i]:
-            df_chap = df_final[df_final["CHAPITRE"] == chap]
+            df_final = df_filtered[df_filtered["CHAPITRE"] == chap]
             
-            for index, row in df_chap.iterrows():
-                # AFFICHAGE CARTE QC
-                with st.container():
-                    # En-tête de la QC
-                    col_score, col_qc = st.columns([1, 4])
-                    
-                    with col_score:
-                        st.metric("Score F2", f"{row['SCORE_F2']:.1f}")
-                    
-                    with col_qc:
-                        st.subheader(f"🗝️ {row['QC_CIBLE']}")
-                        st.caption(f"Fréquence: **{row['n_q']}** / {row['N_tot']} | Récence: **{row['Tau']} ans** | Densité Ψ: **{row['Psi']}**")
-                    
-                    # PREUVE (EXPANDER) - C'est ici qu'on voit les Qi
-                    with st.expander(f"🔎 VOIR LES {len(row['SOURCES_QI'])} PHRASES SOURCES (Preuve de Mapping)"):
-                        for source in row['SOURCES_QI']:
-                            st.markdown(f"- 📄 *{source}*")
-                            
-                    st.markdown("---")
+            # TABLEAU RICHE AVEC VARIABLES
+            st.markdown(f"**Équation :** $Score = (n_q / N_{{tot}}) \\times (1 + \\alpha/\\tau) \\times \\Psi \\times (1-\\sigma)$")
+            
+            st.dataframe(
+                df_final[[
+                    "QC_INVARIANTE", 
+                    "SCORE_F2", 
+                    "n_q", "N_tot", "Tau", "Alpha", "Psi", "Sigma"
+                ]],
+                column_config={
+                    "QC_INVARIANTE": st.column_config.TextColumn("Question Clé (Méthode)", width="large"),
+                    "SCORE_F2": st.column_config.ProgressColumn("Score F2", format="%.2f", min_value=0, max_value=100),
+                    "n_q": st.column_config.NumberColumn("n_q", help="Fréquence brute"),
+                    "N_tot": st.column_config.NumberColumn("N_tot", help="Volume total"),
+                    "Tau": st.column_config.NumberColumn("τ (Récence)", format="%.1f"),
+                    "Psi": st.column_config.NumberColumn("Ψ (Densité)", format="%.2f"),
+                    "Alpha": st.column_config.NumberColumn("α", format="%.1f"),
+                    "Sigma": st.column_config.NumberColumn("σ", format="%.2f"),
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # PREUVE (Mapping Qi)
+            with st.expander("Voir le détail du Mapping (Preuve Qi)"):
+                for idx, row in df_final.iterrows():
+                    st.markdown(f"**{row['QC_INVARIANTE']}** est générée par :")
+                    for source in row["SOURCES"]:
+                        st.text(f"  - {source}")
+                    st.divider()
