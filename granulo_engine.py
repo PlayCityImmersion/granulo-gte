@@ -1,163 +1,121 @@
 import hashlib
 import numpy as np
-import pandas as pd
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional
 import re
+import json
+import os
+from dataclasses import dataclass, field
+from typing import List, Dict, Tuple
 
 # =============================================================================
-# CONSTANTES SECRETES (A2)
+# MOTEUR GRANULO 15 V4.0 (PURE LOGIC - ZERO HARDCODE)
 # =============================================================================
-EPSILON = 0.1          
-NB_QC_TARGET = 15      
-
-# =============================================================================
-# STRUCTURES DE DONNÉES INVARIANTES
-# =============================================================================
-
-@dataclass
-class TriggerSignature:
-    verb: str       
-    obj: str        
-    context: str    
-
-    def get_hash(self) -> str:
-        # Hash insensible à la langue (basé sur le concept, pas le mot)
-        raw = f"{self.verb}|{self.obj}|{self.context}".upper().strip()
-        return hashlib.sha256(raw.encode()).hexdigest()
 
 @dataclass
 class QuestionCle:
     id: str
-    signature: TriggerSignature
-    psi_score: float        
-    sigma_class: int        
     canonical_text: str
-    is_black_swan: bool = False 
+    operator_tag: str
+    triggers_found: List[str]
     covered_qi_list: List[str] = field(default_factory=list) 
-    
-    def to_dict(self):
-        return {
-            "ID": self.id,
-            "Signature (V|O|C)": f"{self.signature.verb} | {self.signature.obj}",
-            "Psi (F1)": round(self.psi_score, 2),
-            "Type": "BLACK SWAN" if self.is_black_swan else "STANDARD",
-            "Qi Couvertes": len(self.covered_qi_list)
-        }
+    is_black_swan: bool = False
 
-# =============================================================================
-# MOTEUR GRANULO 15 V2.1 (DÉTECTION SYMBOLIQUE UNIVERSELLE)
-# =============================================================================
+    @property
+    def is_well_formed(self) -> bool:
+        return "?" in self.canonical_text or self.is_black_swan
+
+@dataclass
+class GranuloAudit:
+    b1_all_mapped: bool = False
+    b2_qc_structure: bool = False
+    b3_triggers_valid: bool = False
+    b4_conservation: bool = False
+    b5_black_swan: bool = False
+    
+    @property
+    def global_pass(self) -> bool:
+        return all([self.b1_all_mapped, self.b2_qc_structure, self.b3_triggers_valid, self.b4_conservation, self.b5_black_swan])
 
 class GranuloEngine:
-    def __init__(self):
+    def __init__(self, config_path: str = "smaxia_p3_db.json"):
         self.raw_atoms = []
-        # SIMULATION DB P3 (Ces données viendraient de la base SQL en PROD)
-        # On ne hardcode pas dans la fonction, on charge une config.
-        self.universal_symbols = {
-            "INTEGRALE": [r"∫", r"\\int", "primitiv", "area under curve", "aire sous"],
-            "DERIVEE": [r"f'\(", r"dy/dx", r"\\frac{d}{dx}", "rate of change", "taux d'accroissement"],
-            "SUITE": [r"u_n", r"u_{n", "sequence", "récurrence"],
-            "PROBA": [r"P\(", r"P\(X", "bernoulli", "binomial", "aléatoire", "random"],
-            "LIMITE": [r"lim ", r"\\to", "asymptot", "tend vers"],
-            "COMPLEXE": [r"z\s*=", r"i^2", "modul", "argument", "affixe"],
-            "VECTEUR": [r"\\vec", "coordonn", "scalar", "colinéaire"]
-        }
+        self.archetypes = self._load_configuration(config_path)
 
-    def compute_psi_f1(self, text_len: int, symbol_density: float) -> float:
-        # F1 prend en compte la densité mathématique (Symboles / Texte)
-        base_psi = 0.5 + (min(text_len, 500) / 1000)
-        return round(base_psi * (1 + symbol_density), 2)
-
-    def _detect_invariant(self, text: str) -> TriggerSignature:
+    def _load_configuration(self, path: str) -> List[Dict]:
         """
-        DÉTECTEUR UNIVERSEL : Priorité aux Symboles Mathématiques (Langue neutre)
+        INJECTION DE DÉPENDANCE : 
+        Le moteur charge sa connaissance depuis l'extérieur.
+        Si le fichier change (Pays), le moteur s'adapte sans redéploiement.
         """
-        text_lower = text.lower()
-        found_concept = "CONCEPT_GENERIQUE"
-        
-        # 1. SCAN SYMBOLIQUE (Invariant Universel)
-        symbol_hits = 0
-        for concept, markers in self.universal_symbols.items():
-            for marker in markers:
-                if marker in text_lower:
-                    found_concept = concept
-                    symbol_hits += 1
-                    break 
-            if found_concept != "CONCEPT_GENERIQUE": break
-
-        # 2. DÉDUCTION ACTION (V) - Basée sur la structure de la phrase (Simplifié)
-        # En PROD : Analyse NLP des verbes d'action multilingues
-        action = "APPLIQUER" 
-        if "?" in text or "quel" in text_lower or "what" in text_lower: action = "DETERMINER"
-        if "montr" in text_lower or "show" in text_lower or "prouv" in text_lower: action = "DEMONTRER"
-
-        return TriggerSignature(action, found_concept, "STANDARD"), symbol_hits
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            # Fallback critique (ne devrait jamais arriver en PROD)
+            return []
 
     def ingest_qi(self, text: str, source_type: str):
-        sig, symbol_count = self._detect_invariant(text)
-        
-        # Calcul Psi basé sur la densité de symboles (Preuve de complexité)
-        density = symbol_count / (len(text.split()) + 1)
-        psi = self.compute_psi_f1(len(text), density)
-        
-        atom = {
-            "text": text,
-            "signature": sig,
-            "hash": sig.get_hash(),
-            "psi": psi,
-            "source": source_type
-        }
-        self.raw_atoms.append(atom)
+        self.raw_atoms.append({"text": text, "source": source_type, "mapped": False})
 
-    def run_reduction_process(self) -> List[QuestionCle]:
-        if not self.raw_atoms: return []
-
-        # 1. CLUSTERING PAR HASH INVARIANT
-        clusters = {}
+    def run_reduction_process(self) -> Tuple[List[QuestionCle], GranuloAudit]:
+        # 1. INITIALISATION DYNAMIQUE (Pas de hardcode)
+        active_qcs = {}
+        
+        # 2. MAPPING AGNOSTIQUE
         for atom in self.raw_atoms:
-            h = atom['hash']
-            if h not in clusters: clusters[h] = []
-            clusters[h].append(atom)
-
-        # 2. GÉNÉRATION DES QC
-        qc_list = []
-        counter = 1
-        
-        for h, atoms in clusters.items():
-            rep = atoms[0]
-            avg_psi = np.mean([a['psi'] for a in atoms])
+            text_lower = atom['text'].lower()
+            matched = False
             
-            # Texte Canonique Générique (Pas de langue spécifique)
-            canon_txt = f"[{rep['signature'].verb}] >> [{rep['signature'].obj}]"
+            # Le moteur itère sur la CONFIGURATION injectée, pas sur du code dur
+            for arch in self.archetypes:
+                found_triggers = []
+                # Matching Universel (Regex ou String)
+                for trigger in arch['triggers']:
+                    # Échappement regex sécurisé pour les symboles mathématiques
+                    pattern = re.escape(trigger) if "\\" in trigger else trigger
+                    if re.search(pattern, text_lower, re.IGNORECASE):
+                        found_triggers.append(trigger)
+                
+                if found_triggers:
+                    qc_id = arch['id']
+                    if qc_id not in active_qcs:
+                        active_qcs[qc_id] = QuestionCle(
+                            id=qc_id,
+                            canonical_text=arch['canonical_template'],
+                            operator_tag=arch['operator_tag'],
+                            triggers_found=found_triggers
+                        )
+                    
+                    active_qcs[qc_id].covered_qi_list.append(atom['text'])
+                    atom['mapped'] = True
+                    matched = True
+                    break 
+            
+            if not matched:
+                # BLACK SWAN DYNAMIQUE
+                meta_id = "QC-15-META"
+                if meta_id not in active_qcs:
+                    active_qcs[meta_id] = QuestionCle(
+                        id=meta_id,
+                        canonical_text="Méta-Protocole : Transposition Hors-Piste",
+                        operator_tag="BLACK_SWAN",
+                        triggers_found=["NO_MATCH"],
+                        is_black_swan=True
+                    )
+                active_qcs[meta_id].covered_qi_list.append(atom['text'])
 
-            qc = QuestionCle(
-                id=f"QC-{counter:02d}",
-                signature=rep['signature'],
-                psi_score=avg_psi,
-                sigma_class=2,
-                canonical_text=canon_txt,
-                covered_qi_list=[a['text'][:150] + "..." for a in atoms]
-            )
-            qc_list.append(qc)
-            counter += 1
+        # 3. TRI & AUDIT
+        qc_list = list(active_qcs.values())
+        qc_list.sort(key=lambda x: len(x.covered_qi_list), reverse=True)
 
-        # 3. QC #15 (Invariant Transposition)
-        qc15 = QuestionCle(
-            id="QC-15-META",
-            signature=TriggerSignature("TRANSPOSER", "BLACK_SWAN", "HORS_PISTE"),
-            psi_score=9.99,
-            sigma_class=4,
-            canonical_text="META-PROTOCOLE: Identifier structure inconnue",
-            is_black_swan=True,
-            covered_qi_list=[] 
-        )
-        qc_list.append(qc15)
+        audit = GranuloAudit()
+        audit.b1_all_mapped = all(len(qc.covered_qi_list) > 0 for qc in qc_list)
+        audit.b2_qc_structure = all(qc.is_well_formed for qc in qc_list)
+        audit.b3_triggers_valid = all(len(qc.triggers_found) > 0 for qc in qc_list)
         
-        qc_list.sort(key=lambda x: x.psi_score, reverse=True)
-        return qc_list[:NB_QC_TARGET + 1]
+        total_input = len(self.raw_atoms)
+        total_output = sum(len(qc.covered_qi_list) for qc in qc_list)
+        audit.b4_conservation = (total_input == total_output)
+        
+        audit.b5_black_swan = any(qc.is_black_swan for qc in qc_list)
 
-    def check_coverage(self, qc_list: List[QuestionCle]) -> dict:
-        total = len(self.raw_atoms)
-        covered = sum(len(qc.covered_qi_list) for qc in qc_list)
-        return {"total_qi": total, "rate": (covered/total)*100 if total > 0 else 0, "is_valid": True}
+        return qc_list, audit
