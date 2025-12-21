@@ -1,0 +1,52 @@
+[
+  {
+    "id": "MATH-ANA-03",
+    "canonical_template": "Comment calculer la valeur exacte d'une intégrale définie via une primitive ?",
+    "operator_tag": "INTÉGRALE",
+    "triggers": [
+      "intégrale", "primitive", "aire sous la courbe", "\\int_", 
+      "integral", "area under curve", "antiderivative"
+    ],
+    "psi_base": 1.5
+  },
+  {
+    "id": "MATH-ANA-01",
+    "canonical_template": "Comment lever une indétermination pour trouver la limite d'une fonction ?",
+    "operator_tag": "LIMITE",
+    "triggers": [
+      "limite", "indétermin", "asymptot", "tend vers",
+      "limit", "bound", "approaches"
+    ],
+    "psi_base": 1.2
+  },
+  {
+    "id": "MATH-ALG-05",
+    "canonical_template": "Comment résoudre une équation du second degré dans C (Complexes) ?",
+    "operator_tag": "COMPLEXE",
+    "triggers": [
+      "complexe", "affixe", "module", "argument", "z^2", "partie réelle",
+      "complex number", "imaginary part"
+    ],
+    "psi_base": 1.8
+  },
+  {
+    "id": "MATH-VEC-02",
+    "canonical_template": "Comment démontrer que trois points sont alignés ou deux vecteurs colinéaires ?",
+    "operator_tag": "VECTEUR",
+    "triggers": [
+      "alignés", "colinéaires", "parallèl", "coordonnées", "vecteur",
+      "vector", "collinear", "coordinates"
+    ],
+    "psi_base": 1.0
+  },
+  {
+    "id": "MATH-PROB-01",
+    "canonical_template": "Comment calculer une probabilité conditionnelle P_B(A) ?",
+    "operator_tag": "PROBABILITÉ",
+    "triggers": [
+      "sachant que", "probabilité", "p_b", "arbre pondéré", "loi",
+      "probability", "given that", "bayes"
+    ],
+    "psi_base": 1.4
+  }
+]
