@@ -3,91 +3,50 @@ import pandas as pd
 import numpy as np
 import random
 import time
+from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Factory V8")
-st.title("🏭 SMAXIA - Console Factory V8 (UI V6 + Logic V7)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Factory V5.1")
+st.title("🏭 SMAXIA - Console Factory & Crash Test (V5.1)")
 
-st.markdown("""
-<style>
-    .math-font { font-family: 'Courier New'; font-weight: bold; color: #b91c1c; }
-    .qc-header { font-size: 18px; font-weight: bold; color: #1e40af; }
-</style>
-""", unsafe_allow_html=True)
-
-# --- 1. MOTEUR DE CONTENU POLYMORPHE (V7 LOGIC) ---
-# Templates pour générer des variantes uniques (Preuve d'intelligence)
-MATH_TEMPLATES = {
-    "SUITES_GEO": [
-        "Montrer que la suite ({name}) est géométrique.",
-        "Démontrer que ({name}) est une suite géométrique de raison {val}.",
-        "Justifier que la suite définie par {name} est de nature géométrique.",
-        "En déduire que ({name}) est géométrique."
+# --- 0. SIMULATEUR DE DONNÉES MATHÉMATIQUES ---
+DB_MATHS = {
+    "SUITES NUMÉRIQUES": [
+        "Démontrer par récurrence que la suite est majorée",
+        "Étudier le sens de variation de la suite (Un)",
+        "Déterminer la limite de la suite par comparaison",
+        "Montrer que la suite est géométrique de raison q",
+        "Exprimer Un en fonction de n",
+        "Calculer la somme des termes consécutifs"
     ],
-    "SUITES_LIM": [
-        "Déterminer la limite de la suite ({name}).",
-        "Calculer la limite de ({name}) quand n tend vers l'infini.",
-        "Étudier la convergence de la suite ({name}).",
-        "La suite ({name}) converge-t-elle ?"
+    "NOMBRES COMPLEXES": [
+        "Déterminer la forme algébrique de z",
+        "Calculer le module et l'argument",
+        "Résoudre l'équation z² + az + b = 0",
+        "Placer les points images dans le plan complexe",
+        "Montrer que le triangle ABC est équilatéral"
     ],
-    "COMPLEXE_ALG": [
-        "Déterminer la forme algébrique du nombre complexe {var}.",
-        "Écrire {var} sous forme a + ib.",
-        "Calculer la partie réelle et imaginaire de {var}.",
-        "Mettre le nombre {var} sous forme algébrique."
-    ],
-    "ESPACE_ORTHO": [
-        "Démontrer que la droite ({d}) est orthogonale au plan ({p}).",
-        "Prouver que le vecteur {v} est normal au plan ({p}).",
-        "Justifier que ({d}) est perpendiculaire à ({p}).",
-        "Vérifier l'orthogonalité entre ({d}) et ({p})."
+    "GÉOMÉTRIE ESPACE": [
+        "Démontrer que la droite est orthogonale au plan",
+        "Déterminer une représentation paramétrique de droite",
+        "Calculer le produit scalaire u.v",
+        "Vérifier que le point M appartient au plan (P)",
+        "Déterminer une équation cartésienne du plan"
     ]
 }
 
-VAR_NAMES = ["Un", "Vn", "Wn", "tn"]
-COMPLEX_VARS = ["z", "z'", "zA", "Ω"]
-VECTORS = ["n", "u", "v", "AB"]
-VALS = ["1/2", "3", "q", "-1"]
+# --- 1. FONCTIONS MOTEUR ---
 
-def generate_qi_variant(concept_code):
-    """Génère une phrase unique basée sur un template"""
-    templates = MATH_TEMPLATES.get(concept_code, ["Question standard."])
-    template = random.choice(templates)
-    return template.format(
-        name=random.choice(VAR_NAMES),
-        val=random.choice(VALS),
-        var=random.choice(COMPLEX_VARS),
-        d=random.choice(["D", "Delta", "(AB)"]),
-        p=random.choice(["P", "(ABC)", "Q"]),
-        v=random.choice(VECTORS)
-    )
-
-def generate_full_subject_content(filename, nature, qi_list):
-    """Crée le contenu texte du fichier pour téléchargement"""
-    return f"""
-    ACADÉMIE SMAXIA - SESSION 2025
-    ÉPREUVE : MATHÉMATIQUES ({nature})
-    FICHIER : {filename}
-    ------------------------------------------------
-    EXERCICE 1
-    1. {qi_list[0] if len(qi_list) > 0 else "..."}
-    2. {qi_list[1] if len(qi_list) > 1 else "..."}
-    
-    EXERCICE 2
-    1. {qi_list[2] if len(qi_list) > 2 else "..."}
-    ------------------------------------------------
-    FIN DU SUJET
+def ingest_and_calculate(urls, n_per_url, chapitres_cibles):
     """
-
-# --- 2. FONCTIONS MOTEUR ---
-
-def ingest_and_generate(urls, n_per_url):
-    """Génère les fichiers et extrait les Qi"""
-    sources_db = []
+    Simule la chaîne complète : Sourcing -> Granulation -> Calcul QC -> Score F2
+    """
+    sources_log = []
     all_qi = []
     
-    natures = ["BAC", "DST", "CONCOURS"]
+    natures = ["BAC", "DST", "INTERRO", "CONCOURS"]
     
+    # 1. SOURCING
     progress = st.progress(0)
     total_ops = len(urls) * n_per_url
     counter = 0
@@ -97,192 +56,286 @@ def ingest_and_generate(urls, n_per_url):
         for j in range(n_per_url):
             counter += 1
             progress.progress(min(counter/total_ops, 1.0))
-            time.sleep(0.005)
+            time.sleep(0.002) 
             
             nature = random.choice(natures)
-            year = random.choice(range(2020, 2025))
+            year = random.choice(range(2019, 2025))
             file_id = f"DOC_{i}_{j}"
-            filename = f"Sujet_{nature}_{year}_{j}.txt"
+            filename = f"Sujet_{nature}_{year}_{j}.pdf"
             
-            # Génération Contenu
-            concepts = random.sample(list(MATH_TEMPLATES.keys()), k=random.randint(2, 3))
-            qi_in_file = []
+            # On simule un lien de téléchargement
+            download_link = f"https://fake-smaxia-cloud.com/dl/{filename}"
             
-            for concept in concepts:
-                qi_txt = generate_qi_variant(concept)
-                qi_in_file.append(qi_txt)
-                all_qi.append({
-                    "Concept_Code": concept,
-                    "Qi_Brut": qi_txt,
-                    "Fichier": filename,
-                    "Année": year
-                })
-            
-            full_text = generate_full_subject_content(filename, nature, qi_in_file)
-            
-            sources_db.append({
+            sources_log.append({
+                "ID": file_id,
                 "Fichier": filename,
-                "Nature": nature,
+                "Télécharger": download_link, # Lien simulé
+                "Nature": nature, 
                 "Année": year,
-                "Contenu_Txt": full_text
+                "Statut": "📥 OK"
             })
             
+            # Extraction Qi
+            chaps_sujet = random.sample(chapitres_cibles, k=min(len(chapitres_cibles), 2))
+            for chap in chaps_sujet:
+                nb_exos = random.randint(2, 4)
+                for _ in range(nb_exos):
+                    qi_txt = random.choice(DB_MATHS[chap])
+                    all_qi.append({
+                        "ID_Source": file_id,
+                        "Nature_Source": nature,
+                        "Année": year,
+                        "Chapitre": chap,
+                        "Qi_Brut": qi_txt,
+                        "Fichier_Origine": filename
+                    })
+    
     progress.empty()
-    return pd.DataFrame(sources_db), pd.DataFrame(all_qi)
-
-def calculate_engine_qc(df_qi):
-    """Regroupe par Concept (Invariant) et calcule F1/F2"""
-    if df_qi.empty: return pd.DataFrame()
+    df_sources = pd.DataFrame(sources_log)
+    df_qi = pd.DataFrame(all_qi)
     
-    # On groupe par le CODE CONCEPT (L'invariant caché)
-    grouped = df_qi.groupby("Concept_Code").agg({
-        "Qi_Brut": "count",        # n_q
+    # 2. CALCUL MOTEUR QC (F2)
+    if df_qi.empty:
+        return df_sources, df_qi, pd.DataFrame()
+
+    grouped = df_qi.groupby(["Chapitre", "Qi_Brut"]).agg({
+        "ID_Source": "count",      # n_q
         "Année": "max",            # Récence
-        "Fichier": list,           # Preuve Sources
-        "Qi_Brut": list            # Preuve Variantes
-    }).rename(columns={"Qi_Brut": "Variantes"}).reset_index()
-    
-    # Retrouver le n_q correct car renommage
-    grouped["n_q"] = grouped["Variantes"].apply(len)
-
-    # Titres Propres
-    TITRES = {
-        "SUITES_GEO": "COMMENT Démontrer qu'une suite est géométrique",
-        "SUITES_LIM": "COMMENT Calculer la limite d'une suite",
-        "COMPLEXE_ALG": "COMMENT Déterminer la forme algébrique",
-        "ESPACE_ORTHO": "COMMENT Démontrer l'orthogonalité Droite/Plan"
-    }
+        "Fichier_Origine": list
+    }).reset_index()
     
     qcs = []
     N_total = len(df_qi)
     current_year = datetime.now().year
     
     for idx, row in grouped.iterrows():
-        n_q = row["n_q"]
+        n_q = row["ID_Source"]
         tau = max((current_year - row["Année"]), 0.5)
         alpha = 5.0
-        psi = 1.0 # Densité cognitive standard
-        sigma = 0.05 # Faible bruit
+        psi = 1.0 
+        sigma = 0.00
         
-        # ÉQUATION F2 COMPLETE
         score = (n_q / N_total) * (1 + alpha/tau) * psi * (1-sigma) * 100
+        qc_name = f"COMMENT {row['Qi_Brut']}..."
         
-        qc_title = TITRES.get(row["Concept_Code"], row["Concept_Code"])
-        
-        # Preuve (Fichier + Phrase)
-        evidence = []
-        for k in range(len(row["Variantes"])):
-            evidence.append({
-                "Fichier": row["Fichier"][k],
-                "Qi (Variante)": row["Variantes"][k]
-            })
-            
         qcs.append({
-            "QC_ID": f"QC_{idx+1:03d}",
-            "QC_INVARIANTE": qc_title,
+            "CHAPITRE": row["Chapitre"],
+            "QC_INVARIANTE": qc_name,
             "SCORE_F2": score,
-            
-            # VARIABLES POUR AFFICHAGE
             "n_q": n_q,
             "N_tot": N_total,
             "Tau": tau,
-            "Alpha": alpha,
-            "Psi": psi,
-            "Sigma": sigma,
-            
-            "EVIDENCE": evidence
+            "QI_ASSOCIES": row["Fichier_Origine"]
         })
         
-    return pd.DataFrame(qcs).sort_values(by="SCORE_F2", ascending=False)
+    df_qc = pd.DataFrame(qcs).sort_values(by=["CHAPITRE", "SCORE_F2"], ascending=[True, False])
+    
+    # AJOUT DES IDs UNIQUES (QC_1, QC_2...)
+    df_qc = df_qc.reset_index(drop=True)
+    df_qc["QC_ID"] = df_qc.index + 1
+    df_qc["QC_ID"] = df_qc["QC_ID"].apply(lambda x: f"QC_{x:03d}")
+    
+    # Réorganiser les colonnes
+    cols = ["QC_ID"] + [c for c in df_qc.columns if c != "QC_ID"]
+    df_qc = df_qc[cols]
+    
+    return df_sources, df_qi, df_qc
+
+def analyze_external_subject(target_chapitre, doc_type, df_qc_engine):
+    """
+    Simule l'analyse d'un sujet externe injecté pour le test
+    """
+    extracted_qi = []
+    if target_chapitre in DB_MATHS:
+        existing_qi = random.sample(DB_MATHS[target_chapitre], k=min(3, len(DB_MATHS[target_chapitre])))
+        extracted_qi.extend(existing_qi)
+    extracted_qi.append("Démontrer la conjecture de Riemann (Question hors programme)")
+    
+    results = []
+    
+    for qi in extracted_qi:
+        match_found = False
+        match_id = "---"
+        match_text = "---"
+        match_score = 0
+        
+        for idx, row in df_qc_engine.iterrows():
+            core_qc = row["QC_INVARIANTE"].replace("COMMENT ", "").replace("...", "")
+            if core_qc in qi:
+                match_found = True
+                match_id = row["QC_ID"]
+                match_text = row["QC_INVARIANTE"]
+                match_score = row["SCORE_F2"]
+                break
+        
+        results.append({
+            "Qi_Enonce": qi,
+            "Statut": "✅ MATCH" if match_found else "❌ GAP",
+            "QC_ID": match_id,
+            "QC_Moteur": match_text,
+            "Score_F2": match_score
+        })
+        
+    return pd.DataFrame(results)
 
 # --- INTERFACE ---
 
 # SIDEBAR
 with st.sidebar:
-    st.header("1. Paramètres Usine")
-    n_sujets = st.number_input("Sujets par URL", 1, 50, 5)
+    st.header("1. Périmètre Usine")
+    chapitres_actifs = st.multiselect(
+        "Chapitres Cibles", 
+        list(DB_MATHS.keys()), 
+        default=["SUITES NUMÉRIQUES"]
+    )
 
-# LAYOUT PRINCIPAL
-st.subheader("A. Usine de Sourcing & Génération (V8)")
+# TABS
+tab_factory, tab_test = st.tabs(["🏭 USINE (Production)", "🧪 CRASH TEST (Validation)"])
 
-col_input, col_act = st.columns([3, 1])
-with col_input:
-    urls_input = st.text_area("URLs Cibles", "https://apmep.fr", height=70)
-with col_act:
-    st.write("")
-    btn_run = st.button("LANCER L'USINE 🚀", type="primary")
+# --- TAB 1 : USINE ---
+with tab_factory:
+    st.subheader("A. Sourcing & Génération QC")
 
-if btn_run:
-    url_list = urls_input.split('\n')
-    with st.spinner("Génération Polymorphe & Calculs..."):
-        df_src, df_qi = ingest_and_generate(url_list, n_sujets)
-        df_qc = calculate_engine_qc(df_qi)
+    col_input, col_act = st.columns([3, 1])
+    with col_input:
+        urls_input = st.text_area("Sources (URLs)", "https://apmep.fr/terminale\nhttps://sujetdebac.fr", height=70)
+    with col_act:
+        n_sujets = st.number_input("Vol. par URL", 5, 100, 10)
+        btn_run = st.button("LANCER L'USINE 🚀", type="primary")
+
+    if btn_run:
+        url_list = urls_input.split('\n')
+        with st.spinner("Traitement en cours..."):
+            df_src, df_qi, df_qc = ingest_and_calculate(url_list, n_sujets, chapitres_actifs)
+            st.session_state['df_src'] = df_src
+            st.session_state['df_qi'] = df_qi
+            st.session_state['df_qc'] = df_qc
+            st.success("Usine mise à jour.")
+            # On force le rechargement pour afficher les nouvelles colonnes proprement
+            st.rerun()
+
+    st.divider()
+
+    # VUE SPLIT USINE
+    if 'df_qc' in st.session_state:
+        col_left, col_right = st.columns([1, 1.5])
         
-        st.session_state['df_src'] = df_src
-        st.session_state['df_qc'] = df_qc
-        st.success("Usine mise à jour.")
+        # --- GAUCHE : SUJETS SOURCÉS ---
+        with col_left:
+            st.markdown(f"### 📥 Sujets ({len(st.session_state['df_src'])})")
+            
+            # SÉCURITÉ ANTI-CRASH V5
+            # Si l'utilisateur a de vieilles données en cache sans la colonne 'Télécharger', on gère l'erreur
+            if "Télécharger" not in st.session_state['df_src'].columns:
+                st.warning("⚠️ Données obsolètes détectées. Veuillez relancer l'usine (bouton rouge).")
+                df_display_src = st.session_state['df_src'][["Fichier", "Nature", "Année"]]
+            else:
+                df_display_src = st.session_state['df_src'][["Fichier", "Nature", "Année", "Télécharger"]]
 
-st.divider()
+            st.dataframe(
+                df_display_src,
+                column_config={
+                    "Télécharger": st.column_config.LinkColumn("Action", display_text="📥 Télécharger"),
+                },
+                use_container_width=True,
+                height=600
+            )
 
-if 'df_qc' in st.session_state:
+        # --- DROITE : QC GÉNÉRÉES ---
+        with col_right:
+            total_qc = len(st.session_state['df_qc'])
+            st.markdown(f"### 🧠 QC Générées (Total : {total_qc})")
+            
+            if not st.session_state['df_qc'].empty:
+                # SÉCURITÉ : Vérification que QC_ID existe
+                if "QC_ID" not in st.session_state['df_qc'].columns:
+                     st.warning("⚠️ Ancienne structure QC détectée. Relancez l'usine.")
+                else:
+                    # Filtre Chapitre
+                    available_chaps = st.session_state['df_qc']["CHAPITRE"].unique()
+                    chap_filter = st.selectbox("Filtrer par Chapitre", available_chaps)
+                    
+                    df_view_qc = st.session_state['df_qc'][st.session_state['df_qc']["CHAPITRE"] == chap_filter]
+                    
+                    if not df_view_qc.empty:
+                        for idx, row in df_view_qc.iterrows():
+                            with st.container():
+                                # En-tête avec QC_ID
+                                c1, c2 = st.columns([0.5, 3])
+                                with c1:
+                                    st.markdown(f"**`{row['QC_ID']}`**")
+                                with c2:
+                                    st.info(f"**{row['QC_INVARIANTE']}**")
+                                
+                                # Détails Score
+                                k1, k2, k3, k4 = st.columns(4)
+                                k1.caption(f"Score F2: **{row['SCORE_F2']:.1f}**")
+                                k2.caption(f"Freq (n_q): {row['n_q']}")
+                                k3.caption(f"Récence (τ): {row['Tau']}")
+                                k4.caption(f"Densité (Ψ): 1.0")
+                                
+                                # Preuve
+                                with st.expander("Voir les Qi sources"):
+                                    st.dataframe(pd.DataFrame(row['QI_ASSOCIES'], columns=["Fichiers Sources"]), hide_index=True)
+                                st.divider()
+                    else:
+                        st.info("Aucune QC pour ce chapitre.")
+
+# --- TAB 2 : CRASH TEST ---
+with tab_test:
+    st.subheader("B. Zone de Test (Mapping Enoncé -> QC)")
     
-    col_left, col_right = st.columns([1, 1.5])
-    
-    # --- GAUCHE : LISTE SUJETS (UI V6 Restaurée) ---
-    with col_left:
-        st.markdown(f"### 📥 Sujets ({len(st.session_state['df_src'])})")
+    if 'df_qc' in st.session_state and "QC_ID" in st.session_state['df_qc'].columns:
         
-        # 1. Le Tableau Propre (V6 Style)
-        st.dataframe(
-            st.session_state['df_src'][["Fichier", "Nature", "Année"]],
-            use_container_width=True,
-            height=400
-        )
+        # 1. SIMULATION UPLOAD
+        col_up, col_param = st.columns([2, 1])
+        with col_up:
+            st.file_uploader("Télécharger un sujet (PDF/Image)", type=["pdf", "png", "jpg"])
+            st.caption("*(Simulation : le système va extraire le texte automatiquement)*")
+        with col_param:
+            doc_type = st.selectbox("Type Document", ["DST", "BAC", "EXO"])
+            target_chap = st.selectbox("Chapitre Supposé", chapitres_actifs)
+            btn_test = st.button("ANALYSER L'ÉNONCÉ")
         
-        # 2. La Zone de Téléchargement (Fonctionnelle)
-        st.info("👇 Zone de Téléchargement Physique")
-        selected_file = st.selectbox("Choisir un sujet à vérifier :", st.session_state['df_src']["Fichier"])
-        
-        # Récupération du contenu
-        file_data = st.session_state['df_src'][st.session_state['df_src']["Fichier"] == selected_file].iloc[0]
-        
-        st.download_button(
-            label="💾 TÉLÉCHARGER CE SUJET (.txt)",
-            data=file_data["Contenu_Txt"],
-            file_name=selected_file,
-            mime="text/plain",
-            type="primary"
-        )
+        # 2. RÉSULTAT ANALYSE
+        if btn_test:
+            st.divider()
+            st.markdown("#### Résultats de l'Atomisation & Mapping")
+            
+            # Lancer l'analyse simulée
+            df_res_test = analyze_external_subject(target_chap, doc_type, st.session_state['df_qc'])
+            
+            # KPI
+            nb_qi = len(df_res_test)
+            nb_match = len(df_res_test[df_res_test["Statut"] == "✅ MATCH"])
+            taux = (nb_match / nb_qi) * 100
+            
+            k1, k2 = st.columns(2)
+            k1.metric("Qi extraites de l'énoncé", nb_qi)
+            k2.metric("Taux de Couverture", f"{taux:.0f}%")
+            
+            # TABLEAU DE MAPPING (La demande clé)
+            st.markdown("##### Tableau de Correspondance (Qi vs QC)")
+            
+            def highlight_status(val):
+                color = '#dcfce7' if val == '✅ MATCH' else '#fee2e2'
+                return f'background-color: {color}; color: black'
 
-    # --- DROITE : QC + VARIABLES (Demande Spécifique) ---
-    with col_right:
-        total_qc = len(st.session_state['df_qc'])
-        st.markdown(f"### 🧠 QC Générées ({total_qc})")
-        
-        for idx, row in st.session_state['df_qc'].iterrows():
-            with st.container():
-                # En-tête
-                c1, c2 = st.columns([0.5, 3])
-                c1.markdown(f"**`{row['QC_ID']}`**")
-                c2.markdown(f"<span class='qc-header'>{row['QC_INVARIANTE']}</span>", unsafe_allow_html=True)
+            st.dataframe(
+                df_res_test[["Qi_Enonce", "Statut", "QC_ID", "QC_Moteur"]].style.map(highlight_status, subset=['Statut']),
+                column_config={
+                    "Qi_Enonce": st.column_config.TextColumn("1. Qi (Enoncé Élève)", width="large"),
+                    "Statut": st.column_config.TextColumn("2. Verdict", width="small"),
+                    "QC_ID": st.column_config.TextColumn("3. Ref ID", width="small"),
+                    "QC_Moteur": st.column_config.TextColumn("4. QC SMAXIA (Réponse)", width="large")
+                },
+                use_container_width=True
+            )
+            
+            if taux < 100:
+                st.error("⚠️ Attention : Certaines questions de ce sujet ne trouvent pas de réponse dans le moteur actuel.")
+            else:
+                st.success("✅ Succès : Le moteur couvre intégralement ce sujet.")
                 
-                # Score Principal
-                st.caption(f"Score F2 Global : **{row['SCORE_F2']:.2f}**")
-                
-                # TABLEAU DES VARIABLES (Demande Explicite)
-                # On crée un petit dataframe transvisé pour la lisibilité
-                vars_df = pd.DataFrame({
-                    "Variable": ["n_q (Freq)", "N_tot (Vol)", "Tau (Récence)", "Alpha (Ctx)", "Psi (Densité)", "Sigma (Bruit)"],
-                    "Valeur": [row['n_q'], row['N_tot'], row['Tau'], row['Alpha'], row['Psi'], row['Sigma']]
-                })
-                st.dataframe(vars_df.T, use_container_width=True) # Transposé pour être horizontal
-                
-                # PREUVE POLYMORPHE
-                with st.expander(f"🔎 Voir les {row['n_q']} Variantes (Preuve Polymorphisme)"):
-                    st.write("Phrases élèves différentes regroupées sous cette QC :")
-                    st.dataframe(pd.DataFrame(row['EVIDENCE']), hide_index=True, use_container_width=True)
-                
-                st.divider()
-
-else:
-    st.info("Configurez et lancez l'usine.")
+    else:
+        st.warning("⚠️ Le moteur est vide ou obsolète. Veuillez lancer l'usine dans l'onglet 1.")
