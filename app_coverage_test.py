@@ -6,8 +6,8 @@ import time
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Factory V5")
-st.title("🏭 SMAXIA - Console Factory & Crash Test (V5)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Factory V5.1")
+st.title("🏭 SMAXIA - Console Factory & Crash Test (V5.1)")
 
 # --- 0. SIMULATEUR DE DONNÉES MATHÉMATIQUES ---
 DB_MATHS = {
@@ -131,7 +131,6 @@ def ingest_and_calculate(urls, n_per_url, chapitres_cibles):
     df_qc = pd.DataFrame(qcs).sort_values(by=["CHAPITRE", "SCORE_F2"], ascending=[True, False])
     
     # AJOUT DES IDs UNIQUES (QC_1, QC_2...)
-    # On reset l'index pour avoir un ordre propre
     df_qc = df_qc.reset_index(drop=True)
     df_qc["QC_ID"] = df_qc.index + 1
     df_qc["QC_ID"] = df_qc["QC_ID"].apply(lambda x: f"QC_{x:03d}")
@@ -146,29 +145,20 @@ def analyze_external_subject(target_chapitre, doc_type, df_qc_engine):
     """
     Simule l'analyse d'un sujet externe injecté pour le test
     """
-    # 1. Simuler l'extraction des Qi du sujet injecté
-    # On prend 4 questions : 3 qui existent dans la DB (Match), 1 inventée (No Match)
     extracted_qi = []
-    
-    # Qi existantes (Simulées depuis la DB)
     if target_chapitre in DB_MATHS:
         existing_qi = random.sample(DB_MATHS[target_chapitre], k=min(3, len(DB_MATHS[target_chapitre])))
         extracted_qi.extend(existing_qi)
-    
-    # Qi "OVNI" (Pour tester le cas non trouvé)
     extracted_qi.append("Démontrer la conjecture de Riemann (Question hors programme)")
     
     results = []
     
-    # 2. MAPPING : Qi Sujet vs QC Moteur
     for qi in extracted_qi:
         match_found = False
         match_id = "---"
         match_text = "---"
         match_score = 0
         
-        # Recherche de correspondance (Matching sémantique simulé)
-        # On regarde si le texte de la QC (sans "COMMENT") est dans la Qi
         for idx, row in df_qc_engine.iterrows():
             core_qc = row["QC_INVARIANTE"].replace("COMMENT ", "").replace("...", "")
             if core_qc in qi:
@@ -221,6 +211,8 @@ with tab_factory:
             st.session_state['df_qi'] = df_qi
             st.session_state['df_qc'] = df_qc
             st.success("Usine mise à jour.")
+            # On force le rechargement pour afficher les nouvelles colonnes proprement
+            st.rerun()
 
     st.divider()
 
@@ -232,9 +224,14 @@ with tab_factory:
         with col_left:
             st.markdown(f"### 📥 Sujets ({len(st.session_state['df_src'])})")
             
-            # Affichage simplifié sans URL source
-            df_display_src = st.session_state['df_src'][["Fichier", "Nature", "Année", "Télécharger"]]
-            
+            # SÉCURITÉ ANTI-CRASH V5
+            # Si l'utilisateur a de vieilles données en cache sans la colonne 'Télécharger', on gère l'erreur
+            if "Télécharger" not in st.session_state['df_src'].columns:
+                st.warning("⚠️ Données obsolètes détectées. Veuillez relancer l'usine (bouton rouge).")
+                df_display_src = st.session_state['df_src'][["Fichier", "Nature", "Année"]]
+            else:
+                df_display_src = st.session_state['df_src'][["Fichier", "Nature", "Année", "Télécharger"]]
+
             st.dataframe(
                 df_display_src,
                 column_config={
@@ -250,41 +247,45 @@ with tab_factory:
             st.markdown(f"### 🧠 QC Générées (Total : {total_qc})")
             
             if not st.session_state['df_qc'].empty:
-                # Filtre Chapitre
-                available_chaps = st.session_state['df_qc']["CHAPITRE"].unique()
-                chap_filter = st.selectbox("Filtrer par Chapitre", available_chaps)
-                
-                df_view_qc = st.session_state['df_qc'][st.session_state['df_qc']["CHAPITRE"] == chap_filter]
-                
-                if not df_view_qc.empty:
-                    for idx, row in df_view_qc.iterrows():
-                        with st.container():
-                            # En-tête avec QC_ID
-                            c1, c2 = st.columns([0.5, 3])
-                            with c1:
-                                st.markdown(f"**`{row['QC_ID']}`**")
-                            with c2:
-                                st.info(f"**{row['QC_INVARIANTE']}**")
-                            
-                            # Détails Score
-                            k1, k2, k3, k4 = st.columns(4)
-                            k1.caption(f"Score F2: **{row['SCORE_F2']:.1f}**")
-                            k2.caption(f"Freq (n_q): {row['n_q']}")
-                            k3.caption(f"Récence (τ): {row['Tau']}")
-                            k4.caption(f"Densité (Ψ): 1.0")
-                            
-                            # Preuve
-                            with st.expander("Voir les Qi sources"):
-                                st.dataframe(pd.DataFrame(row['QI_ASSOCIES'], columns=["Fichiers Sources"]), hide_index=True)
-                            st.divider()
+                # SÉCURITÉ : Vérification que QC_ID existe
+                if "QC_ID" not in st.session_state['df_qc'].columns:
+                     st.warning("⚠️ Ancienne structure QC détectée. Relancez l'usine.")
                 else:
-                    st.info("Aucune QC pour ce chapitre.")
+                    # Filtre Chapitre
+                    available_chaps = st.session_state['df_qc']["CHAPITRE"].unique()
+                    chap_filter = st.selectbox("Filtrer par Chapitre", available_chaps)
+                    
+                    df_view_qc = st.session_state['df_qc'][st.session_state['df_qc']["CHAPITRE"] == chap_filter]
+                    
+                    if not df_view_qc.empty:
+                        for idx, row in df_view_qc.iterrows():
+                            with st.container():
+                                # En-tête avec QC_ID
+                                c1, c2 = st.columns([0.5, 3])
+                                with c1:
+                                    st.markdown(f"**`{row['QC_ID']}`**")
+                                with c2:
+                                    st.info(f"**{row['QC_INVARIANTE']}**")
+                                
+                                # Détails Score
+                                k1, k2, k3, k4 = st.columns(4)
+                                k1.caption(f"Score F2: **{row['SCORE_F2']:.1f}**")
+                                k2.caption(f"Freq (n_q): {row['n_q']}")
+                                k3.caption(f"Récence (τ): {row['Tau']}")
+                                k4.caption(f"Densité (Ψ): 1.0")
+                                
+                                # Preuve
+                                with st.expander("Voir les Qi sources"):
+                                    st.dataframe(pd.DataFrame(row['QI_ASSOCIES'], columns=["Fichiers Sources"]), hide_index=True)
+                                st.divider()
+                    else:
+                        st.info("Aucune QC pour ce chapitre.")
 
 # --- TAB 2 : CRASH TEST ---
 with tab_test:
     st.subheader("B. Zone de Test (Mapping Enoncé -> QC)")
     
-    if 'df_qc' in st.session_state:
+    if 'df_qc' in st.session_state and "QC_ID" in st.session_state['df_qc'].columns:
         
         # 1. SIMULATION UPLOAD
         col_up, col_param = st.columns([2, 1])
@@ -337,4 +338,4 @@ with tab_test:
                 st.success("✅ Succès : Le moteur couvre intégralement ce sujet.")
                 
     else:
-        st.warning("⚠️ Le moteur est vide. Veuillez lancer l'usine dans l'onglet 1.")
+        st.warning("⚠️ Le moteur est vide ou obsolète. Veuillez lancer l'usine dans l'onglet 1.")
