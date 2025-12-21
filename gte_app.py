@@ -1,103 +1,118 @@
 import streamlit as st
 import pandas as pd
 import pdfplumber
+import re
 from granulo_engine import GranuloEngine
 
-# =============================================================================
-# CONFIGURATION DE L'INTERFACE
-# =============================================================================
-st.set_page_config(page_title="SMAXIA GTE-T1", layout="wide")
+st.set_page_config(page_title="SMAXIA GTE-V2.2", layout="wide")
 
-st.title("🛡️ SMAXIA GRANULO TEST ENGINE (GTE-T1)")
-st.markdown("""
-**Statut :** BANC DE TEST INDUSTRIEL (SANDBOX)  
-**Objectif :** Valider la Loi de Réduction Axiomatique (15 QC / Chapitre)  
-**Critère Booléen :** Couverture >= 95% des Qi injectées
-""")
+st.title("🛡️ SMAXIA GRANULO TEST ENGINE (V2.2)")
+st.caption("BANC DE TEST INDUSTRIEL | SPLITTER UNIVERSEL | MAPPING ARBORESCENT")
 
 # =============================================================================
-# SIDEBAR : CONFIGURATION
+# SIDEBAR
 # =============================================================================
 with st.sidebar:
-    st.header("⚙️ Configuration")
-    uploaded_files = st.file_uploader(
-        "Injecter Sujets (PDF/TXT)", 
-        type=['pdf', 'txt'], 
-        accept_multiple_files=True
-    )
-    matiere = st.selectbox("Matière Cible", ["Mathématiques", "Physique", "Chimie"])
-    st.info("Le moteur appliquera les formules F1 à F7 et l'Axiome Delta.")
+    st.header("⚙️ INGESTION")
+    uploaded_files = st.file_uploader("Sources (PDF/TXT)", type=['pdf', 'txt'], accept_multiple_files=True)
+    st.info("Nouveau : Découpage intelligent (Exercice, Problème, Partie...)")
+
+# =============================================================================
+# FONCTION DE DÉCOUPAGE AVANCÉE (SMART SPLITTER)
+# =============================================================================
+def smart_split_pdf(text):
+    """
+    Découpe le texte brut en Qi atomiques basées sur les structures d'examens.
+    Reconnait : Exercice, Ex, Problème, Problem, Partie, Q1, 1.
+    """
+    # Regex pour trouver les séparateurs d'exercices (Universel FR/EN)
+    pattern = r"(?:\n|^)\s*(?:Exercice|Exercise|Ex|Problème|Problem|Partie|Part)\s*\d*"
+    
+    # 1. Découpage primaire (Gros blocs)
+    segments = re.split(pattern, text, flags=re.IGNORECASE)
+    
+    # 2. Nettoyage et Filtrage (On garde ce qui ressemble à une question)
+    valid_qi = []
+    for seg in segments:
+        clean_seg = seg.strip()
+        # On garde si c'est assez long (> 50 caractères) pour contenir de la sémantique
+        if len(clean_seg) > 50: 
+            valid_qi.append(clean_seg)
+            
+    return valid_qi
 
 # =============================================================================
 # COEUR DU TEST
 # =============================================================================
-
 if uploaded_files:
     engine = GranuloEngine()
     
-    with st.spinner('🚀 INITIALISATION DU MOTEUR GRANULO...'):
-        # 1. INGESTION & HACHAGE ATOMIQUE
+    with st.spinner('⚡ ANALYSE INTELLIGENTE (Smart Split + Invariance)...'):
+        # INGESTION
+        total_pages = 0
         for file in uploaded_files:
             text = ""
             if file.type == "application/pdf":
                 with pdfplumber.open(file) as pdf:
-                    for page in pdf.pages:
+                    for page in pdf.pages: 
                         text += page.extract_text() or ""
+                        total_pages += 1
             else:
                 text = file.read().decode("utf-8")
             
-            # Simulation : Découpage par question
-            segments = text.split("Exercice")
-            for seg in segments:
-                if len(seg) > 20:
-                    engine.ingest_qi(seg, source_type="UPLOAD")
-    
-        # 2. EXÉCUTION DE LA RÉDUCTION
+            # UTILISATION DU SMART SPLITTER V2.2
+            atoms = smart_split_pdf(text)
+            for atom in atoms:
+                engine.ingest_qi(atom, source_type=file.name)
+
+        # RÉDUCTION
         qc_results = engine.run_reduction_process()
-        
-        # 3. CALCUL COUVERTURE
         audit = engine.check_coverage(qc_results)
 
     # =========================================================================
-    # RÉSULTATS & AUDIT VISUEL
+    # DASHBOARD
     # =========================================================================
     
-    # KPI GLOBAL
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Qi Injectées", audit['total_qi'])
-    col2.metric("QC Invariantes", len(qc_results))
-    col3.metric("Taux Couverture", f"{audit['rate']:.1f}%")
+    # KPI
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    kpi1.metric("PDFs / Pages", f"{len(uploaded_files)} / {total_pages}")
+    kpi2.metric("Qi Extraites (Smart)", audit['total_qi']) # Doit être >> 13
+    kpi3.metric("Clusters QC", len(qc_results))
+    kpi4.metric("Couverture", f"{audit['rate']:.1f}%")
 
-    # VERDICT BOOLEEN
     if audit['is_valid']:
-        st.success("✅ VERDICT : PASS (SCELLABLE). La Loi de Réduction est respectée.")
+        st.success("✅ VERDICT : PASS. La Loi de Réduction est respectée.")
     else:
-        st.error("❌ VERDICT : REJECT (FAIL). Trous dans la raquette détectés.")
+        st.error("❌ VERDICT : REJECT. Taux de couverture insuffisant.")
 
     st.divider()
 
-    # VISUALISATION DES INVARIANTS
-    st.subheader("🧬 TABLE DES INVARIANTS (QC)")
-    
-    data = [qc.to_dict() for qc in qc_results]
-    df = pd.DataFrame(data)
-    st.dataframe(df, use_container_width=True)
+    # =========================================================================
+    # VUE ARBORESCENCE (MAPPING PREUVE)
+    # =========================================================================
+    st.header("🧬 ARBORESCENCE DU MAPPING (QC Mère ➔ Qi Filles)")
+    st.markdown("Dépliez une QC pour voir les questions réelles qu'elle a capturées.")
 
-    # DÉTAIL D'UNE QC (INSPECTION F1/ARI)
-    st.subheader("🔍 INSPECTION ATOMIQUE")
-    qc_ids = [qc.id for qc in qc_results]
-    if qc_ids:
-        selected_qc_id = st.selectbox("Choisir une QC pour inspection F1/ARI", qc_ids)
-        if selected_qc_id:
-            target = next(qc for qc in qc_results if qc.id == selected_qc_id)
-            st.json(target.to_dict())
-            st.markdown(f"**Texte Canonique :** {target.canonical_text}")
-            if target.is_black_swan:
-                st.warning("⚠️ Ceci est la QC #15 (Transposition). Elle capture les questions hors-cluster.")
+    for qc in qc_results:
+        # Titre de l'expander : ID + SIGNATURE + NB CAPTURÉS
+        label = f"📍 {qc.id} : {qc.canonical_text} ({len(qc.covered_qi_list)} Qi capturées)"
+        
+        with st.expander(label, expanded=False):
+            # En-tête de la QC
+            c1, c2, c3 = st.columns([1, 2, 1])
+            c1.markdown(f"**Signature V:** `{qc.signature.verb}`")
+            c2.markdown(f"**Signature O:** `{qc.signature.obj}`")
+            c3.markdown(f"**Psi Score:** `{qc.psi_score}`")
+            
+            st.markdown("---")
+            st.markdown("**🔽 Qi RÉELLES (SOURCES PDF) :**")
+            
+            # Liste des Qi filles
+            if len(qc.covered_qi_list) > 0:
+                for i, qi_text in enumerate(qc.covered_qi_list):
+                    st.text_area(f"Qi #{i+1} associée", value=qi_text, height=100, disabled=True)
+            else:
+                st.caption("⚠️ Aucune Qi capturée par ce cluster (potentiel QC théorique ou Black Swan vide).")
 
 else:
-    st.write("👈 Veuillez charger des sujets dans la barre latérale pour lancer le test.")
-
-# Signature de validation
-st.divider()
-st.caption("SMAXIA GTE-T1 | Validé par Panel Élite | Code Scellé A2/A3")
+    st.info("👈 Chargez vos sujets pour voir l'arborescence du mapping.")
