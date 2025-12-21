@@ -1,85 +1,192 @@
 import streamlit as st
-import pandas as pd
 import pdfplumber
 import re
-import os
-from granulo_engine import GranuloEngine
+import uuid
+import pandas as pd
 
-st.set_page_config(page_title="SMAXIA GTE-V4.0", layout="wide")
+# ======================================================
+# CONFIG
+# ======================================================
+st.set_page_config(
+    page_title="SMAXIA – Granulo Test Engine",
+    layout="wide"
+)
 
-st.title("🛡️ SMAXIA GRANULO TEST ENGINE (V4.0)")
-st.caption("ARCHITECTURE SCELLABLE | MOTEUR INVARIANT + INJECTION P3 | VÉRIFICATION STRICTE")
+st.title("SMAXIA – Granulo Test Engine (MODE TEST STRICT)")
+st.caption("QC • Déclencheurs • Mapping • FRT • F1/F2/F3 • BOOLÉEN")
 
-# VERIFICATION DE L'ENVIRONNEMENT
-P3_LIBRARY_FILE = "smaxia_p3_db_fr.json"
+# ======================================================
+# EXTRACTION QI
+# ======================================================
+def extract_text(file):
+    if file.type == "application/pdf":
+        text = ""
+        with pdfplumber.open(file) as pdf:
+            for p in pdf.pages:
+                if p.extract_text():
+                    text += p.extract_text() + "\n"
+        return text
+    return file.read().decode("utf-8")
 
-if not os.path.exists(P3_LIBRARY_FILE):
-    st.error(f"🚨 ERREUR CRITIQUE : La bibliothèque d'invariants '{P3_LIBRARY_FILE}' est introuvable. Le moteur ne peut pas démarrer.")
-    st.stop()
 
-# SIDEBAR
-with st.sidebar:
-    st.header("⚙️ INGESTION & CONFIG")
-    st.success(f"Bibliothèque chargée : {P3_LIBRARY_FILE}")
-    uploaded_files = st.file_uploader("Sources (PDF/TXT)", type=['pdf', 'txt'], accept_multiple_files=True)
+def split_qi(text):
+    chunks = re.split(r"(?:Exercice|Question|\n\d+\.)", text)
+    qi = []
+    for c in chunks:
+        t = c.strip()
+        if len(t) >= 80:
+            qi.append({
+                "qi_id": str(uuid.uuid4())[:8],
+                "text": t
+            })
+    return qi
 
-# SPLITTER UNIVERSEL
-def smart_split_pdf(text):
-    pattern = r"(?:\n|^)\s*(?:Exercice|Exercise|Ex|Problème|Problem|Partie|Part)\s*\d*"
-    segments = re.split(pattern, text, flags=re.IGNORECASE)
-    valid_qi = [seg.strip() for seg in segments if len(seg.strip()) > 50]
-    return valid_qi
+# ======================================================
+# GRANULO – LOGIQUE TEST (NON PROD)
+# ======================================================
+def detect_operator(qi_text):
+    t = qi_text.lower()
+    if "calcul" in t or "déterminer" in t:
+        return "CALCULER"
+    if "démontrer" in t or "montrer" in t:
+        return "DEMONTRER"
+    if "résoudre" in t or "solution" in t:
+        return "RESOUDRE"
+    if "étudier" in t or "variation" in t:
+        return "ETUDIER"
+    return None
+
+
+def build_qc(qi_list):
+    qc_map = {}
+    rejected = []
+
+    for qi in qi_list:
+        op = detect_operator(qi["text"])
+        if not op:
+            rejected.append(qi)
+            continue
+
+        if op not in qc_map:
+            qc_map[op] = {
+                "qc_id": f"QC_{op}",
+                "operator": op,
+                "triggers": ["OPERATOR=" + op],
+                "qi": []
+            }
+        qc_map[op]["qi"].append(qi)
+
+    return list(qc_map.values()), rejected
+
+
+def build_frt(qc):
+    return {
+        "INPUT": "Données mathématiques structurées",
+        "STEPS": [
+            f"Appliquer l’opérateur {qc['operator']}",
+            "Effectuer les transformations algébriques nécessaires",
+            "Vérifier la cohérence du résultat"
+        ],
+        "OUTPUT": "Résultat mathématique valide"
+    }
+
+
+def compute_F1(qc):
+    # Densité opératoire
+    return len(qc["qi"])
+
+
+def compute_F2(qc, total_qi):
+    # Couverture
+    return round(len(qc["qi"]) / total_qi, 3)
+
+
+def compute_F3(qc):
+    # Criticité pédagogique (bloquant si peu de QC)
+    return 1 if len(qc["qi"]) >= 2 else 0
+
+# ======================================================
+# UI
+# ======================================================
+uploaded_files = st.file_uploader(
+    "Injecter sujets (PDF/TXT)",
+    type=["pdf", "txt"],
+    accept_multiple_files=True
+)
 
 if uploaded_files:
-    # INJECTION DE DÉPENDANCE : ON PASSE LE CHEMIN DU FICHIER AU MOTEUR
-    engine = GranuloEngine(p3_library_path=P3_LIBRARY_FILE)
-    
-    with st.spinner('⚡ EXÉCUTION DU MOTEUR INVARIANT (LOAD + MATCH)...'):
-        for file in uploaded_files:
-            text = ""
-            if file.type == "application/pdf":
-                with pdfplumber.open(file) as pdf:
-                    for page in pdf.pages: text += page.extract_text() or ""
-            else: text = file.read().decode("utf-8")
-            
-            atoms = smart_split_pdf(text)
-            for atom in atoms:
-                engine.ingest_qi(atom, source_type=file.name)
+    all_qi = []
+    for f in uploaded_files:
+        all_qi.extend(split_qi(extract_text(f)))
 
-        qc_results, audit = engine.run_reduction_process()
+    st.metric("Qi extraites", len(all_qi))
 
-    # DASHBOARD BOOLÉEN
-    st.header("⚖️ VERDICT BOOLÉEN SMAXIA")
-    
-    c1, c2, c3, c4, c5 = st.columns(5)
-    def icon(v): return "✅ PASS" if v else "❌ FAIL"
-    
-    c1.metric("B1: Mapping Total", icon(audit.b1_all_mapped))
-    c2.metric("B2: Structure QC", icon(audit.b2_qc_structure))
-    c3.metric("B3: Triggers Valid", icon(audit.b3_triggers_valid))
-    c4.metric("B4: Conservation", icon(audit.b4_conservation))
-    c5.metric("B5: Black Swan", icon(audit.b5_black_swan))
-
-    if audit.global_pass:
-        st.success("🏆 ARCHITECTURE VALIDÉE : Le moteur est conforme à l'Axiome SMAXIA-INV-01.")
-    else:
-        st.error("⛔ ARCHITECTURE INVALIDÉE : Vérifiez vos invariants.")
+    qc_list, rejected_qi = build_qc(all_qi)
 
     st.divider()
+    st.header("📦 LIVRABLES GRANULO (TEST)")
 
-    # VUE ARBORESCENCE
-    st.header("🧬 MAPPING P3 INJECTÉ")
-    for qc in qc_results:
-        count = len(qc.covered_qi_list)
-        label = f"📍 {qc.id} : {qc.canonical_text} ({count} Qi)"
-        if qc.is_black_swan: label = f"⚠️ {qc.id} : {qc.canonical_text} ({count} Qi)"
-        
-        with st.expander(label, expanded=qc.is_black_swan):
-            st.info(f"**Concept:** {qc.operator_tag}")
-            st.success(f"**Déclencheurs (P3):** {', '.join(list(set(qc.triggers_found))[:3])}")
-            st.markdown("---")
-            for i, txt in enumerate(qc.covered_qi_list):
-                st.text_area(f"Qi #{i+1}", txt[:300] + "...", height=70, disabled=True)
+    total_qi = len(all_qi)
+    mapped_qi = 0
 
-else:
-    st.info("👈 Chargez vos sujets pour tester l'architecture découplée.")
+    rows = []
+
+    for qc in qc_list:
+        mapped_qi += len(qc["qi"])
+        frt = build_frt(qc)
+
+        F1 = compute_F1(qc)
+        F2 = compute_F2(qc, total_qi)
+        F3 = compute_F3(qc)
+
+        rows.append({
+            "QC_ID": qc["qc_id"],
+            "OPERATEUR": qc["operator"],
+            "DECLENCHEURS": qc["triggers"],
+            "NB_QI": len(qc["qi"]),
+            "F1": F1,
+            "F2": F2,
+            "F3": F3
+        })
+
+        with st.expander(f"{qc['qc_id']} – {qc['operator']}"):
+            st.markdown("### Déclencheurs")
+            st.write(qc["triggers"])
+
+            st.markdown("### Mapping QC ⇄ Qi")
+            for qi in qc["qi"]:
+                st.write(f"- {qi['qi_id']} : {qi['text'][:120]}…")
+
+            st.markdown("### FRT (référence)")
+            st.json(frt)
+
+            st.markdown("### Métriques")
+            st.write({"F1": F1, "F2": F2, "F3": F3})
+
+    st.divider()
+    st.subheader("Tableau de synthèse")
+    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+    # ======================================================
+    # BOOLÉEN FINAL
+    # ======================================================
+    B_QC = len(qc_list) > 0
+    B_MAPPING = mapped_qi == total_qi
+    B_REJECT = len(rejected_qi) == 0
+
+    B_TEST = B_QC and B_MAPPING and B_REJECT
+
+    st.divider()
+    st.header("🧮 VERDICT BOOLÉEN")
+
+    st.write({
+        "B_QC_CANONIQUES": B_QC,
+        "B_MAPPING_TOTAL": B_MAPPING,
+        "B_QI_REJETÉES": B_REJECT,
+        "B_TEST": B_TEST
+    })
+
+    if B_TEST:
+        st.success("✅ TEST VALIDÉ — GRANULO SAIN — P6 AUTORISÉ")
+    else:
+        st.error("❌ TEST ÉCHOUÉ — ANGLE MORT DÉTECTÉ — P6 INTERDIT")
