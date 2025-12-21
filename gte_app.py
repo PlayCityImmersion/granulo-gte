@@ -3,194 +3,213 @@ import pandas as pd
 import pdfplumber
 import re
 import numpy as np
+from collections import Counter
 
-# --- CONFIGURATION SMAXIA ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Moteur Intégral V4.5")
+# --- CONFIGURATION ---
+st.set_page_config(layout="wide", page_title="SMAXIA - Moteur Audit V6 (Maths Réelles)")
 st.markdown("""
 <style>
     .stDataFrame { border: 1px solid #444; }
-    .big-score { color: #1E3A8A; font-weight: bold; }
+    .metric-box { border: 1px solid #ccc; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 1. BIBLIOTHÈQUE D'ABSTRACTION (Le Moteur V4 qui fonctionne) ---
+# --- 1. DÉFINITION DES QC ET PATTERNS ---
 QC_LIBRARY = {
-    # ANALYSE
     "ANA_LIM": {
-        "pattern": r"(limite.*(infini|\+∞|-\∞)|tend vers.*(infini|\+∞|-\∞))",
         "QC_Invariant": "COMMENT Calculer une limite en l'infini",
-        "Chapitre": "ANALYSE - LIMITES"
+        "pattern": r"(limite.*(infini|\+∞|-\∞)|tend vers.*(infini|\+∞|-\∞))",
+        "keywords": ["limite", "tend", "infini", "asymptote"]
     },
     "ANA_PRIM": {
+        "QC_Invariant": "COMMENT Déterminer une primitive",
         "pattern": r"(primitive|intégrale)",
-        "QC_Invariant": "COMMENT Déterminer une primitive d'une fonction",
-        "Chapitre": "ANALYSE - INTÉGRATION"
+        "keywords": ["primitive", "intégrale", "fonction", "dérivée"]
     },
     "ANA_VAR": {
-        "pattern": r"(variations|dérivée|croissante|décroissante)",
-        "QC_Invariant": "COMMENT Étudier les variations d'une fonction",
-        "Chapitre": "ANALYSE - DÉRIVATION"
+        "QC_Invariant": "COMMENT Étudier les variations",
+        "pattern": r"(variations|dérivée|croissante|décroissante|tableau)",
+        "keywords": ["variations", "signe", "dérivée", "tableau"]
     },
-    "ANA_REC": {
-        "pattern": r"(récurrence|initialisation|hérédité)",
-        "QC_Invariant": "COMMENT Démontrer une propriété par récurrence",
-        "Chapitre": "ANALYSE - SUITES"
-    },
-    # GÉOMÉTRIE (Retour de la détection large)
     "GEO_ESPACE": {
+        "QC_Invariant": "COMMENT Caractériser la position relative (Espace)",
         "pattern": r"(plan|vecteur normal|orthogonal|coplanaires|sécants|représentation paramétrique)",
-        "QC_Invariant": "COMMENT Caractériser la position relative de droites et plans",
-        "Chapitre": "GÉOMÉTRIE DANS L'ESPACE"
-    },
-    # PROBABILITÉS
-    "PROBA_LOI": {
-        "pattern": r"(loi normale|espérance|écart-type|probabilité)",
-        "QC_Invariant": "COMMENT Calculer des probabilités avec une loi continue",
-        "Chapitre": "PROBABILITÉS"
+        "keywords": ["plan", "droite", "vecteur", "orthogonal", "normal", "repère"]
     }
 }
 
-# --- 2. EXTRACTION ---
-def extract_qi_segments(file):
-    text = ""
-    with pdfplumber.open(file) as pdf:
-        for page in pdf.pages:
-            extract = page.extract_text()
-            if extract: text += extract + "\n"
-    text = text.replace('\n', ' ')
-    raw_segments = re.split(r'[.;?!]', text)
-    return [s.strip() for s in raw_segments if len(s) > 20]
+# --- 2. FONCTIONS MATHÉMATIQUES SMAXIA (STRICTES) ---
 
-# --- 3. CALCULATEUR SCORE COMPLET (Equation SMAXIA) ---
-def compute_full_equation(qi_text, context_keywords):
-    # Nettoyage et Tokenization
-    all_words = re.findall(r'\w+', qi_text.lower())
+def get_word_counts(text):
+    # Tokenization stricte pour compter N_total et n_q
+    words = re.findall(r'\w+', text.lower())
     
-    # N_total : Nombre TOTAL de mots dans la phrase (Dynamique)
-    N_total = len(all_words)
+    # N_total = TOUS les mots (y compris "le", "de", "et")
+    N_total = len(words)
+    
+    stopwords = ['le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'ou', 'est', 'sont', 'par', 'pour', 'que', 'qui', 'dans', 'sur']
+    # n_q = Mots porteurs de sens (> 2 lettres, pas stopword)
+    useful_words = [w for w in words if len(w) > 2 and w not in stopwords]
+    n_q = len(useful_words)
+    
+    return N_total, n_q, useful_words
+
+def compute_sigma(words):
+    # Pénalité de bruit (Bruit = Mots administratifs)
+    noise_list = ['candidat', 'copie', 'sujet', 'page', 'points', 'annexe', 'rendu', 'exercice']
+    noise_count = sum(1 for w in words if w in noise_list)
+    # Formule Sigma : 0.15 par mot de bruit, max 0.9
+    sigma = min(noise_count * 0.15, 0.9)
+    return sigma
+
+def compute_equation_smaxia(text, keywords_ctx, tau_global):
+    # 1. Variables de base
+    N_total, n_q, useful_words = get_word_counts(text)
+    
     if N_total == 0: return None
     
-    # n_q : Nombre de mots "utiles" (longueur > 2 et pas des stopwords basiques)
-    stopwords = ['le', 'la', 'les', 'de', 'du', 'des', 'un', 'une', 'et', 'ou', 'est', 'sont', 'par', 'pour']
-    meaningful_words = [w for w in all_words if len(w) > 2 and w not in stopwords]
-    n_q = len(meaningful_words)
+    # 2. Alpha (Pertinence contextuelle)
+    # Combien de mots utiles sont des mots-clés du chapitre ?
+    matches = sum(1 for w in useful_words if w in keywords_ctx)
+    alpha = matches # Valeur brute
     
-    # Alpha (Pertinence) : Match avec le contexte du chapitre
-    matches = sum(1 for w in meaningful_words if w in context_keywords)
-    Alpha = matches * 1.0 # Poids simple
+    # 3. Psi (Densité sémantique)
+    # Ratio : Mots uniques / Mots utiles
+    unique_words = set(useful_words)
+    psi = len(unique_words) / n_q if n_q > 0 else 0
     
-    # Tau_rec (Constante de Récurrence) - Fixée
-    Tau_rec = 5.0
+    # 4. Sigma (Bruit)
+    sigma = compute_sigma(useful_words)
     
-    # Psi (Densité Sémantique) : Mots uniques / Mots utiles
-    unique_words = set(meaningful_words)
-    Psi = len(unique_words) / n_q if n_q > 0 else 0
+    # 5. ÉQUATION SMAXIA
+    # Score = (n_q / N_total) * [1 + (Alpha / Tau)] * Psi * (1 - Sigma)
     
-    # Sigma (Pénalité Bruit)
-    noise_list = ['candidat', 'copie', 'sujet', 'page', 'points', 'annexe', 'rendu']
-    noise_count = sum(1 for w in meaningful_words if w in noise_list)
-    Sigma = noise_count * 0.2
-    if Sigma > 0.9: Sigma = 0.9
-
-    # --- ÉQUATION SMAXIA ---
-    # Score = (n_q / N_total) * [1 + (Alpha / Tau)] * Psi * product(1-Sigma)
+    # Sécurité div par 0 pour Tau
+    tau_safe = tau_global if tau_global > 0 else 1.0
     
-    term_densite = (n_q / N_total) # Vraie densité sémantique
-    term_contexte = (1 + (Alpha / Tau_rec))
-    term_penalite = (1 - Sigma)
+    term_densite = n_q / N_total
+    term_contexte = 1 + (alpha / tau_safe)
+    term_bruit = 1 - sigma
     
-    Score = term_densite * term_contexte * Psi * term_penalite * 10 
+    raw_score = term_densite * term_contexte * psi * term_bruit
+    
+    # Mise à l'échelle pour affichage (x10)
+    final_score = raw_score * 10
     
     return {
-        "n_q": n_q,
         "N_tot": N_total,
-        "Alpha": Alpha,
-        "Tau": Tau_rec,
-        "Psi": round(Psi, 3),
-        "Sigma": round(Sigma, 2),
-        "SCORE_FINAL": round(Score, 4)
+        "n_q": n_q,
+        "Alpha": alpha,
+        "Tau": tau_safe,
+        "Psi": round(psi, 3),
+        "Sigma": round(sigma, 2),
+        "SCORE": round(final_score, 4)
     }
 
-# --- 4. PIPELINE PRINCIPAL ---
-def process_pipeline(files):
-    results = []
-    all_qi = []
-    for f in files: all_qi.extend(extract_qi_segments(f))
+# --- 3. PIPELINE D'ANALYSE ---
+
+def run_analysis(files):
+    # ÉTAPE 1 : EXTRACTION ET CALCUL DE TAU (GLOBAL)
+    all_segments = []
+    global_recurrence = {k: 0 for k in QC_LIBRARY.keys()}
     
-    for qi in all_qi:
-        qi_lower = qi.lower()
-        matched = False
+    # Lecture complète pour statistique globale
+    for f in files:
+        text = ""
+        with pdfplumber.open(f) as pdf:
+            for page in pdf.pages:
+                extract = page.extract_text()
+                if extract: text += extract + "\n"
+        text = text.replace('\n', ' ')
+        raw_segs = [s.strip() for s in re.split(r'[.;?!]', text) if len(s) > 20]
         
-        # On scanne la bibliothèque (Méthode V4)
-        for key, config in QC_LIBRARY.items():
-            if re.search(config["pattern"], qi_lower):
-                # Détection réussie !
-                
-                # On génère les keywords pour Alpha depuis le pattern
-                keywords_ctx = config["pattern"].replace('|', ' ').replace('(', '').replace(')', '').split()
-                
-                # Calcul Complet
-                metrics = compute_full_equation(qi, keywords_ctx)
-                
-                if metrics and metrics["SCORE_FINAL"] > 0.4: # Filtre qualité minimale
-                    results.append({
-                        "Chapitre": config["Chapitre"],
-                        "QC_Invariant": config["QC_Invariant"],
-                        "Qi_Source": qi,
-                        **metrics # Injection de toutes les variables
+        for seg in raw_segs:
+            # On cherche à quelle QC appartient ce segment pour incrémenter Tau
+            for code, lib in QC_LIBRARY.items():
+                if re.search(lib['pattern'], seg, re.IGNORECASE):
+                    global_recurrence[code] += 1
+                    all_segments.append({
+                        "Code": code,
+                        "Qi": seg,
+                        "Source_File": f.name
                     })
-                    matched = True
-                    break # Une Qi = Une QC
+                    break # Un segment = Une QC unique
+    
+    # ÉTAPE 2 : CALCUL DES SCORES AVEC LE VRAI TAU
+    results = []
+    for item in all_segments:
+        code = item["Code"]
+        lib = QC_LIBRARY[code]
         
+        # Le Tau est maintenant la vraie fréquence dans le corpus injecté
+        real_tau = global_recurrence[code]
+        
+        metrics = compute_equation_smaxia(item["Qi"], lib["keywords"], real_tau)
+        
+        if metrics:
+            results.append({
+                "QC_Invariant": lib["QC_Invariant"],
+                "Qi_Source": item["Qi"],
+                **metrics # Injection des résultats
+            })
+            
     return pd.DataFrame(results)
 
 # --- INTERFACE ---
-st.title("🛡️ SMAXIA PROD - Audit Mathématique Complet")
-st.markdown("### Équation : $Score(q) = (n_q / N_{tot}) \\times [1 + \\alpha/\\tau] \\times \\Psi \\times (1 - \\sigma)$")
+st.title("🛡️ SMAXIA V6 - La Vérité Mathématique")
 
-uploaded_files = st.file_uploader("Injecter PDF Sujets", type=['pdf'], accept_multiple_files=True)
+# --- BARRE LATÉRALE : CONTRE-EXPERTISE ---
+with st.sidebar:
+    st.header("🧮 Outil de Vérification")
+    st.info("Collez une Qi ici pour vérifier manuellement les variables.")
+    test_txt = st.text_area("Phrase à tester", height=100)
+    test_tau = st.number_input("Tau supposé (Récurrence)", value=5, min_value=1)
+    
+    if test_txt:
+        # On utilise le moteur 'ANA_LIM' par défaut pour tester les maths
+        debug_res = compute_equation_smaxia(test_txt, ["limite", "infini"], test_tau)
+        st.write("---")
+        st.markdown(f"**N_total (Mots totaux):** {debug_res['N_tot']}")
+        st.markdown(f"**n_q (Mots utiles):** {debug_res['n_q']}")
+        st.markdown(f"**Psi (Densité):** {debug_res['Psi']}")
+        st.markdown(f"**Sigma (Bruit):** {debug_res['Sigma']}")
+        st.markdown(f"### SCORE: {debug_res['SCORE']}")
+
+# --- ZONE PRINCIPALE ---
+st.write("Injectez vos sujets. Tau ($\tau$) sera calculé dynamiquement selon la fréquence d'apparition dans VOS fichiers.")
+
+uploaded_files = st.file_uploader("PDF Sujets", type=['pdf'], accept_multiple_files=True)
 
 if uploaded_files:
-    df = process_pipeline(uploaded_files)
+    with st.spinner("Calcul de la récurrence globale et scoring..."):
+        df = run_analysis(uploaded_files)
     
     if not df.empty:
-        # Tri par Score global
-        df = df.sort_values(by="SCORE_FINAL", ascending=False)
+        # Affichage groupé par QC
+        unique_qcs = df['QC_Invariant'].unique()
         
-        chapters = sorted(df['Chapitre'].unique())
-        
-        for chap in chapters:
+        for qc in unique_qcs:
             st.markdown("---")
-            st.header(f"📘 {chap}")
+            df_qc = df[df['QC_Invariant'] == qc].sort_values(by="SCORE", ascending=False)
             
-            df_chap = df[df['Chapitre'] == chap]
-            unique_qcs = df_chap['QC_Invariant'].unique()
+            # On récupère le Tau réel utilisé pour ce groupe
+            tau_real = df_qc.iloc[0]['Tau']
             
-            for qc in unique_qcs:
-                df_qc = df_chap[df_chap['QC_Invariant'] == qc]
-                
-                # En-tête QC + Compteur
-                st.info(f"🗝️ **{qc}** ({len(df_qc)} Qi liées)")
-                
-                # TABLEAU COMPLET AVEC TOUTES LES VARIABLES
-                st.dataframe(
-                    df_qc[[
-                        "SCORE_FINAL",
-                        "Qi_Source", 
-                        "n_q", "N_tot", "Alpha", "Tau", "Psi", "Sigma"
-                    ]],
-                    column_config={
-                        "Qi_Source": st.column_config.TextColumn("Source (Qi)", width="large"),
-                        "SCORE_FINAL": st.column_config.ProgressColumn("Score (q)", format="%.3f", min_value=0, max_value=4),
-                        "N_tot": st.column_config.NumberColumn("N_tot (Dyn)", format="%d"),
-                        "n_q": st.column_config.NumberColumn("n_q", format="%d"),
-                        "Alpha": st.column_config.NumberColumn("α", format="%.1f"),
-                        "Tau": st.column_config.NumberColumn("τ", format="%.1f"),
-                        "Psi": st.column_config.NumberColumn("Ψ", format="%.3f"),
-                        "Sigma": st.column_config.NumberColumn("σ", format="%.2f"),
-                    },
-                    use_container_width=True,
-                    hide_index=True
-                )
+            st.markdown(f"#### 🗝️ {qc}")
+            st.caption(f"Récurrence détectée dans le lot : **Tau = {tau_real}** (Ce concept apparait {tau_real} fois)")
+            
+            # TABLEAU DE PREUVE
+            st.dataframe(
+                df_qc[["SCORE", "Qi_Source", "N_tot", "n_q", "Psi", "Alpha", "Sigma"]],
+                column_config={
+                    "Qi_Source": st.column_config.TextColumn("Qi (Phrase Élève)", width="large"),
+                    "SCORE": st.column_config.ProgressColumn("Score", format="%.4f", min_value=0, max_value=5),
+                    "N_tot": st.column_config.NumberColumn("N_tot (Longueur)", format="%d"),
+                    "Psi": st.column_config.NumberColumn("Ψ (Richesse)", format="%.3f"),
+                    "Sigma": st.column_config.NumberColumn("σ (Pénalité)", format="%.2f"),
+                },
+                use_container_width=True,
+                hide_index=True
+            )
     else:
-        st.warning("Aucune donnée détectée. Vérifiez les fichiers.")
+        st.warning("Aucune donnée SMAXIA détectée dans les fichiers.")
