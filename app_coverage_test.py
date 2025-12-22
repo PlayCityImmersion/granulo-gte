@@ -2,14 +2,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import random
+from collections import defaultdict
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V27")
-st.title("🛡️ SMAXIA - Console V27 (Final Stable)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V28")
+st.title("🛡️ SMAXIA - Console V28 (Grouped Evidence)")
 
 # ==============================================================================
-# 🎨 STYLES CSS (GABARIT SMAXIA OFFICIEL)
+# 🎨 STYLES CSS (GABARIT SMAXIA - PRESERVED)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -29,7 +30,7 @@ st.markdown("""
         background-color: #e5e7eb; padding: 4px 8px; border-radius: 4px; margin-top: 5px; display: inline-block;
     }
 
-    /* 2. DÉCLENCHEURS (LISTE) */
+    /* 2. DÉCLENCHEURS */
     .trigger-item {
         background-color: #fff1f2; color: #991b1b; 
         padding: 5px 10px; margin-bottom: 4px; border-radius: 4px;
@@ -37,7 +38,7 @@ st.markdown("""
         display: block;
     }
 
-    /* 3. ARI (ETAPES) */
+    /* 3. ARI */
     .ari-step {
         background-color: #f3f4f6; color: #374151;
         padding: 4px 8px; margin-bottom: 3px; border-radius: 3px;
@@ -45,33 +46,36 @@ st.markdown("""
         display: block;
     }
 
-    /* 4. FRT (BLOCS DISTINCTS) */
+    /* 4. FRT */
     .frt-segment {
         margin-bottom: 8px; padding: 10px; border-radius: 4px;
         border: 1px solid #e5e7eb; background-color: white;
     }
     .frt-seg-title { font-weight: 800; text-transform: uppercase; font-size: 0.75em; display: block; margin-bottom: 4px; }
     .frt-txt { font-family: sans-serif; font-size: 0.95em; color: #333; line-height: 1.4; white-space: pre-wrap; }
-    
-    /* Couleurs Sémantiques */
     .c-usage { color: #d97706; border-left: 4px solid #d97706; }
     .c-method { color: #059669; border-left: 4px solid #059669; }
     .c-trap { color: #dc2626; border-left: 4px solid #dc2626; }
     .c-conc { color: #2563eb; border-left: 4px solid #2563eb; }
 
-    /* 5. QI CARDS (PREUVE) */
-    .qi-card {
-        background-color: white; border: 1px solid #e5e7eb; 
-        border-left: 4px solid #9333ea; border-radius: 4px;
-        padding: 10px; margin-bottom: 8px;
+    /* 5. QI CARDS (GROUPED) */
+    .file-block {
+        margin-bottom: 12px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;
     }
-    .qi-body { font-family: 'Georgia', serif; font-size: 1em; font-weight: 500; color: #111; margin-bottom: 5px; }
-    .qi-meta { font-size: 0.75em; color: #6b7280; text-transform: uppercase; }
+    .file-header {
+        background-color: #f3f4f6; padding: 8px 12px; font-weight: 700; font-size: 0.85em;
+        color: #4b5563; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center;
+    }
+    .qi-item {
+        background-color: white; padding: 10px 12px; border-bottom: 1px solid #f9fafb;
+        font-family: 'Georgia', serif; font-size: 0.95em; color: #111;
+        border-left: 3px solid #9333ea; margin: 5px; border-radius: 0 4px 4px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. KERNEL (CONTENU RICHE & VALIDE)
+# 1. KERNEL
 # ==============================================================================
 
 LISTE_CHAPITRES = {
@@ -83,12 +87,7 @@ UNIVERS_SMAXIA = {
     "FRT_M_S01": {
         "Matiere": "MATHS", "Chap": "SUITES NUMÉRIQUES", 
         "QC": "Comment démontrer qu'une suite est géométrique ?",
-        "Triggers": [
-            "montrer que la suite est géométrique",
-            "déterminer la nature de la suite",
-            "préciser la raison q",
-            "justifier que (Un) est géométrique"
-        ],
+        "Triggers": ["montrer que la suite est géométrique", "déterminer la nature de la suite", "préciser la raison q", "justifier que (Un) est géométrique"],
         "ARI": ["1. Exprimer u(n+1)", "2. Quotient u(n+1)/u(n)", "3. Simplifier", "4. Constante"],
         "FRT_DATA": [
             {"type": "usage", "title": "🔔 1. Quand utiliser", "text": "L'énoncé demande explicitement la nature de la suite ou de prouver qu'elle est géométrique."},
@@ -133,17 +132,13 @@ QI_PATTERNS = {
 # 2. MOTEUR
 # ==============================================================================
 
-def ingest_factory_v27(urls, volume, matiere):
+def ingest_factory_v28(urls, volume, matiere):
     target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
-    
-    # Sécurité: DataFrame vide si rien trouvé
     if not target_frts:
         return (pd.DataFrame(columns=["Fichier", "Nature", "Annee", "Telechargement", "Qi_Data"]),
                 pd.DataFrame(columns=["FRT_ID", "Qi", "File", "Year", "Chapitre"]))
     
-    sources = []
-    atoms = []
-    
+    sources, atoms = [], []
     progress = st.progress(0)
     for i in range(volume):
         progress.progress((i+1)/volume)
@@ -151,40 +146,24 @@ def ingest_factory_v27(urls, volume, matiere):
         annee = random.choice(range(2020, 2025))
         filename = f"Sujet_{matiere}_{nature}_{annee}_{i}.pdf"
         
-        # Génération Qi
         nb_qi = random.randint(3, 6)
         frts = random.choices(target_frts, k=nb_qi)
         qi_data_list = []
-        
         for frt_id in frts:
             qi_txt = random.choice(QI_PATTERNS.get(frt_id, ["Question"])) + f" [Ref:{random.randint(10,99)}]"
-            
-            atoms.append({
-                "FRT_ID": frt_id, 
-                "Qi": qi_txt, 
-                "File": filename, 
-                "Year": annee, 
-                "Chapitre": UNIVERS_SMAXIA[frt_id]["Chap"]
-            })
+            atoms.append({"FRT_ID": frt_id, "Qi": qi_txt, "File": filename, "Year": annee, "Chapitre": UNIVERS_SMAXIA[frt_id]["Chap"]})
             qi_data_list.append({"Qi": qi_txt, "FRT_ID": frt_id})
             
         sources.append({
-            "Fichier": filename, 
-            "Nature": nature, 
-            "Annee": annee, 
-            "Telechargement": f"https://fake-cloud/dl/{filename}", 
-            "Qi_Data": qi_data_list
+            "Fichier": filename, "Nature": nature, "Annee": annee, 
+            "Telechargement": f"https://fake-cloud/dl/{filename}", "Qi_Data": qi_data_list
         })
         
     return pd.DataFrame(sources), pd.DataFrame(atoms)
 
-def compute_qc_v27(df_atoms):
+def compute_qc_v28(df_atoms):
     if df_atoms.empty: return pd.DataFrame()
-    
-    grouped = df_atoms.groupby("FRT_ID").agg({
-        "Qi": list, "File": list, "Year": "max", "Chapitre": "first"
-    }).reset_index()
-    
+    grouped = df_atoms.groupby("FRT_ID").agg({"Qi": list, "File": list, "Year": "max", "Chapitre": "first"}).reset_index()
     qcs = []
     N_tot = len(df_atoms)
     
@@ -196,19 +175,14 @@ def compute_qc_v27(df_atoms):
         score = (n_q / N_tot) * (1 + 5.0/t_rec) * psi * 100
         
         qcs.append({
-            "Chapitre": row["Chapitre"], 
-            "QC_ID": f"QC-{idx+1:02d}", 
-            "FRT_ID": row["FRT_ID"],
-            "Titre": meta["QC"], 
-            "Score": score, "n_q": n_q, "Psi": psi, "N_tot": N_tot, "t_rec": t_rec,
-            "Triggers": meta["Triggers"], 
-            "ARI": meta["ARI"], 
-            "FRT_DATA": meta["FRT_DATA"],
+            "Chapitre": row["Chapitre"], "QC_ID": f"QC-{idx+1:02d}", "FRT_ID": row["FRT_ID"],
+            "Titre": meta["QC"], "Score": score, "n_q": n_q, "Psi": psi, "N_tot": N_tot, "t_rec": t_rec,
+            "Triggers": meta["Triggers"], "ARI": meta["ARI"], "FRT_DATA": meta["FRT_DATA"],
             "Evidence": [{"Fichier": f, "Qi": q} for f, q in zip(row["File"], row["Qi"])]
         })
     return pd.DataFrame(qcs).sort_values(by="Score", ascending=False)
 
-def analyze_external_v27(file, matiere):
+def analyze_external_v28(file, matiere):
     target = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
     if not target: return []
     frts = random.choices(target, k=10)
@@ -219,7 +193,7 @@ def analyze_external_v27(file, matiere):
     return res
 
 # ==============================================================================
-# 3. INTERFACE (UI STABLE)
+# 3. INTERFACE
 # ==============================================================================
 
 with st.sidebar:
@@ -227,9 +201,7 @@ with st.sidebar:
     st.selectbox("Classe", ["Terminale"], disabled=True)
     sel_matiere = st.selectbox("Matière", ["MATHS", "PHYSIQUE"])
     chaps = LISTE_CHAPITRES.get(sel_matiere, [])
-    # Sélectionner le premier chapitre par défaut pour éviter l'écran vide
-    def_chap = [chaps[0]] if chaps else []
-    sel_chapitres = st.multiselect("Chapitres (Filtre Vue)", chaps, default=def_chap)
+    sel_chapitres = st.multiselect("Chapitres (Filtre Vue)", chaps, default=chaps[:1] if chaps else [])
 
 tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine", "✅ Onglet 2 : Audit"])
 
@@ -242,8 +214,8 @@ with tab_usine:
         run = st.button("LANCER L'USINE 🚀", type="primary")
 
     if run:
-        df_src, df_atoms = ingest_factory_v27(urls.split('\n'), vol, sel_matiere)
-        df_qc = compute_qc_v27(df_atoms)
+        df_src, df_atoms = ingest_factory_v28(urls.split('\n'), vol, sel_matiere)
+        df_qc = compute_qc_v28(df_atoms)
         st.session_state['df_src'] = df_src
         st.session_state['df_qc'] = df_qc
         st.success(f"Ingestion terminée : {len(df_src)} sujets traités.")
@@ -251,29 +223,22 @@ with tab_usine:
     st.divider()
 
     if 'df_src' in st.session_state and not st.session_state['df_src'].empty:
-        # TABLEAU SUJETS (SAFE DISPLAY)
         st.markdown(f"### 📥 Sujets Traités ({len(st.session_state['df_src'])})")
-        
-        # Renommage colonnes pour affichage propre
         df_view = st.session_state['df_src'].rename(columns={"Annee": "Année", "Telechargement": "Lien"})
-        
         st.data_editor(
             df_view[["Fichier", "Nature", "Année", "Lien"]],
-            column_config={
-                "Lien": st.column_config.LinkColumn("Téléchargement", display_text="📥 Télécharger PDF")
-            },
+            column_config={"Lien": st.column_config.LinkColumn("Téléchargement", display_text="📥 Télécharger PDF")},
             hide_index=True, use_container_width=True, disabled=True
         )
 
         st.divider()
 
-        # LISTE QC
         st.markdown("### 🧠 Base de Connaissance (QC)")
         if not st.session_state['df_qc'].empty:
             qc_view = st.session_state['df_qc'][st.session_state['df_qc']["Chapitre"].isin(sel_chapitres)]
             
             if qc_view.empty:
-                st.info("Aucune QC dans les chapitres sélectionnés. Essayez d'autres chapitres dans la sidebar.")
+                st.info("Aucune QC dans les chapitres sélectionnés.")
             else:
                 chapters = qc_view["Chapitre"].unique()
                 for chap in chapters:
@@ -304,11 +269,10 @@ with tab_usine:
                                 for s in row['ARI']:
                                     st.markdown(f"<span class='ari-step'>{s}</span>", unsafe_allow_html=True)
                         
-                        # 3. FRT (RENDER 4 BLOCKS)
+                        # 3. FRT
                         with c3:
                             with st.expander("🧾 FRT (Élève)"):
                                 for block in row['FRT_DATA']:
-                                    # Mapping type -> css class
                                     cls_map = {"usage": "c-usage", "method": "c-method", "trap": "c-trap", "conc": "c-conc"}
                                     css = cls_map.get(block['type'], "")
                                     st.markdown(f"""
@@ -318,17 +282,22 @@ with tab_usine:
                                     </div>
                                     """, unsafe_allow_html=True)
                         
-                        # 4. QI (CARDS)
+                        # 4. QI (GROUPÉ PAR FICHIER)
                         with c4:
                             with st.expander(f"📄 Qi ({row['n_q']})"):
-                                # Boucle pour afficher chaque Qi proprement
+                                # LOGIQUE DE REGROUPEMENT
+                                qi_by_file = defaultdict(list)
                                 for item in row['Evidence']:
-                                    st.markdown(f"""
-                                    <div class='qi-card'>
-                                        <div class='qi-body'>“{item['Qi']}”</div>
-                                        <div class='qi-meta'>📄 {item['Fichier']}</div>
-                                    </div>
-                                    """, unsafe_allow_html=True)
+                                    qi_by_file[item['Fichier']].append(item['Qi'])
+                                
+                                # GENERATION HTML
+                                html_qi = ""
+                                for fname, qilist in qi_by_file.items():
+                                    html_qi += f"<div class='file-block'><div class='file-header'>📁 {fname}</div>"
+                                    for q in qilist:
+                                        html_qi += f"<div class='qi-item'>“{q}”</div>"
+                                    html_qi += "</div>"
+                                st.markdown(html_qi, unsafe_allow_html=True)
                         st.write("")
         else:
             st.warning("Aucune QC générée.")
@@ -337,53 +306,29 @@ with tab_usine:
 with tab_audit:
     st.subheader("Validation Booléenne")
     if 'df_qc' in st.session_state and not st.session_state['df_qc'].empty:
-        
         st.markdown("#### ✅ 1. Test Interne")
         t1_file = st.selectbox("Sujet Traité", st.session_state['df_src']["Fichier"])
-        
-        if st.button("LANCER AUDIT INTERNE"):
+        if st.button("LANCER AUDIT"):
             data = st.session_state['df_src'][st.session_state['df_src']["Fichier"]==t1_file].iloc[0]["Qi_Data"]
             known = st.session_state['df_qc']["FRT_ID"].unique()
+            ok = sum(1 for x in data if x["FRT_ID"] in known)
+            st.metric("Couverture", f"{(ok/len(data))*100:.0f}%")
             
-            rows = []
-            ok_count = 0
-            for item in data:
-                is_ok = item["FRT_ID"] in known
-                if is_ok: ok_count += 1
-                status = "✅ MATCH" if is_ok else "❌ GAP"
-                rows.append({"Qi (Enoncé)": item["Qi"], "Statut": status})
-            
-            taux = (ok_count / len(data)) * 100
-            st.markdown(f"### Taux : {taux:.0f}%")
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
-
         st.divider()
-
         st.markdown("#### 🌍 2. Test Externe")
         up = st.file_uploader("PDF Externe", type="pdf")
         if up:
-            ext = analyze_external_v27(up, sel_matiere)
+            ext = analyze_external_v28(up, sel_matiere)
             if not ext: st.error("Rien trouvé")
             else:
-                rows_ext = []
-                ok_ext = 0
-                known = st.session_state['df_qc']["FRT_ID"].unique()
-                
+                ok = sum(1 for x in ext if x["FRT_ID"] in st.session_state['df_qc']["FRT_ID"].unique())
+                st.markdown(f"### Taux : {(ok/len(ext))*100:.1f}%")
+                rows = []
                 for item in ext:
-                    is_ok = item["FRT_ID"] in known
-                    if is_ok: ok_ext += 1
-                    qc_n = "---"
-                    if is_ok:
-                        info = st.session_state['df_qc'][st.session_state['df_qc']["FRT_ID"]==item["FRT_ID"]].iloc[0]
-                        qc_n = info["Titre"]
-                        
-                    rows_ext.append({"Qi": item["Qi"], "QC": qc_n, "Statut": "✅ MATCH" if is_ok else "❌ GAP"})
-                
-                taux = (ok_ext / len(ext)) * 100
-                st.markdown(f"### Taux : {taux:.1f}%")
-                
-                def hl(row):
+                    status = "✅ MATCH" if item["FRT_ID"] in st.session_state['df_qc']["FRT_ID"].unique() else "❌ GAP"
+                    rows.append({"Qi": item["Qi"], "Statut": status})
+                def color(row):
                     return ['background-color: #dcfce7' if row['Statut']=="✅ MATCH" else 'background-color: #fee2e2']*len(row)
-                st.dataframe(pd.DataFrame(rows_ext).style.apply(hl, axis=1), use_container_width=True)
+                st.dataframe(pd.DataFrame(rows).style.apply(color, axis=1), use_container_width=True)
     else:
-        st.info("Veuillez lancer l'usine d'abord.")
+        st.info("Lancez l'usine.")
