@@ -6,8 +6,8 @@ from collections import defaultdict
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V28")
-st.title("🛡️ SMAXIA - Console V28 (Grouped Evidence)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V29")
+st.title("🛡️ SMAXIA - Console V29 (Saturation Analytics)")
 
 # ==============================================================================
 # 🎨 STYLES CSS (GABARIT SMAXIA - PRESERVED)
@@ -71,6 +71,12 @@ st.markdown("""
         font-family: 'Georgia', serif; font-size: 0.95em; color: #111;
         border-left: 3px solid #9333ea; margin: 5px; border-radius: 0 4px 4px 0;
     }
+    
+    /* 6. SATURATION GRAPH */
+    .sat-box {
+        background-color: #f0f9ff; border: 1px solid #bae6fd; padding: 20px; border-radius: 8px; margin-top: 20px;
+    }
+    .sat-metric { font-size: 1.5em; font-weight: bold; color: #0284c7; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -155,7 +161,7 @@ def ingest_factory_v28(urls, volume, matiere):
             qi_data_list.append({"Qi": qi_txt, "FRT_ID": frt_id})
             
         sources.append({
-            "Fichier": filename, "Nature": nature, "Annee": annee, 
+            "Fichier": filename, "Nature": nature, "Année": annee, 
             "Telechargement": f"https://fake-cloud/dl/{filename}", "Qi_Data": qi_data_list
         })
         
@@ -181,6 +187,32 @@ def compute_qc_v28(df_atoms):
             "Evidence": [{"Fichier": f, "Qi": q} for f, q in zip(row["File"], row["Qi"])]
         })
     return pd.DataFrame(qcs).sort_values(by="Score", ascending=False)
+
+def simulate_saturation(volume, matiere):
+    """
+    Simule l'arrivée progressive des sujets et compte les QC uniques découvertes.
+    """
+    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
+    if not target_frts: return pd.DataFrame()
+    
+    data_points = []
+    discovered_frts = set()
+    
+    # On simule l'ingestion sujet par sujet
+    for i in range(1, volume + 1):
+        # Simulation d'un sujet : on tire quelques FRT au hasard (pondéré par réalité)
+        nb_qi_in_doc = random.randint(3, 5)
+        # Random choices avec remise (un sujet peut contenir des classiques)
+        frts_in_doc = random.choices(target_frts, k=nb_qi_in_doc)
+        
+        # On ajoute aux découvertes
+        for frt in frts_in_doc:
+            discovered_frts.add(frt)
+            
+        # On enregistre le point (X=Nb Sujets, Y=Nb QC Uniques)
+        data_points.append({"Sujets Injectés": i, "QC Uniques Découvertes": len(discovered_frts)})
+        
+    return pd.DataFrame(data_points)
 
 def analyze_external_v28(file, matiere):
     target = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
@@ -282,15 +314,12 @@ with tab_usine:
                                     </div>
                                     """, unsafe_allow_html=True)
                         
-                        # 4. QI (GROUPÉ PAR FICHIER)
+                        # 4. QI (GROUPÉ)
                         with c4:
                             with st.expander(f"📄 Qi ({row['n_q']})"):
-                                # LOGIQUE DE REGROUPEMENT
                                 qi_by_file = defaultdict(list)
                                 for item in row['Evidence']:
                                     qi_by_file[item['Fichier']].append(item['Qi'])
-                                
-                                # GENERATION HTML
                                 html_qi = ""
                                 for fname, qilist in qi_by_file.items():
                                     html_qi += f"<div class='file-block'><div class='file-header'>📁 {fname}</div>"
@@ -301,6 +330,34 @@ with tab_usine:
                         st.write("")
         else:
             st.warning("Aucune QC générée.")
+    
+    # --- GRAPHIQUE SATURATION (NOUVEAU) ---
+    st.divider()
+    st.markdown("### 📈 Analyse de Saturation (Stress Test)")
+    st.caption("Ce test simule l'ingestion progressive de sujets pour déterminer le volume nécessaire à la couverture complète du programme.")
+    
+    col_sim_1, col_sim_2 = st.columns([1, 3])
+    with col_sim_1:
+        sim_vol = st.number_input("Volume Simulation", 50, 1000, 100, step=50)
+        if st.button("Lancer Simulation Saturation"):
+            with col_sim_2:
+                with st.spinner("Calcul de la courbe d'apprentissage..."):
+                    df_chart = simulate_saturation(sim_vol, sel_matiere)
+                    
+                    # Affichage du graphe
+                    st.line_chart(df_chart, x="Sujets Injectés", y="QC Uniques Découvertes", color="#2563eb")
+                    
+                    # Analyse auto
+                    max_qc = df_chart["QC Uniques Découvertes"].max()
+                    plateau_start = df_chart[df_chart["QC Uniques Découvertes"] >= max_qc].iloc[0]["Sujets Injectés"]
+                    
+                    st.markdown(f"""
+                    <div class='sat-box'>
+                        <div>🔹 <b>Point de Saturation Estimé :</b> <span class='sat-metric'>{plateau_start} sujets</span></div>
+                        <div>🔹 <b>Plafond de QC (Kernel Actuel) :</b> <span class='sat-metric'>{max_qc} QC</span></div>
+                        <div style='margin-top:5px; font-size:0.9em; color:#64748b;'>À partir de {plateau_start} sujets, l'ajout de nouveaux fichiers n'apporte plus de nouvelles structures types (rendements décroissants).</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
 # --- AUDIT ---
 with tab_audit:
