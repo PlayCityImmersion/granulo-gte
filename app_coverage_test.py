@@ -6,31 +6,32 @@ import time
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V10.4")
-st.title("🛡️ SMAXIA - Console V10.4 (UI Finale & Smart Triggers)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V10.5")
+st.title("🛡️ SMAXIA - Console V10.5 (Finale)")
 
-# Styles CSS (Ajustés pour la ligne unique)
+# Styles CSS
 st.markdown("""
 <style>
     .qc-header-row { 
         display: flex; align-items: center; background-color: #f8f9fa; 
         padding: 10px; border-radius: 5px; border-left: 5px solid #2563eb;
-        font-family: monospace; margin-bottom: 5px;
+        font-family: monospace; margin-bottom: 5px; flex-wrap: wrap;
     }
-    .qc-id-tag { font-weight: bold; color: #d97706; margin-right: 15px; font-size: 1.2em;}
-    .qc-title { flex-grow: 1; font-weight: 600; color: #1f2937; font-size: 1.1em;}
+    .qc-id-tag { font-weight: bold; color: #d97706; margin-right: 10px; font-size: 1.2em; min-width: 80px;}
+    .qc-title { flex-grow: 1; font-weight: 600; color: #1f2937; font-size: 1.1em; margin-right: 15px;}
     .qc-vars { 
-        font-size: 0.9em; color: #374151; font-weight: bold; 
-        background-color: #e5e7eb; padding: 4px 10px; border-radius: 4px; border: 1px solid #d1d5db;
+        font-size: 0.9em; color: #111827; font-weight: bold; font-family: 'Courier New';
+        background-color: #e5e7eb; padding: 6px 12px; border-radius: 4px; border: 1px solid #9ca3af;
+        white-space: nowrap;
     }
     .frt-step { margin-bottom: 8px; font-family: sans-serif; line-height: 1.5; }
-    .trigger-badge { background-color: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 12px; font-size: 0.9em; font-weight: bold; border: 1px solid #fca5a5; margin-right: 5px;}
+    .trigger-badge { background-color: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 12px; font-size: 0.9em; font-weight: bold; border: 1px solid #fca5a5; margin-right: 5px; display: inline-block; margin-bottom: 4px;}
     .stat-metric { font-size: 1.5em; font-weight: bold; color: #2563eb; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 🧱 KERNEL SMAXIA (Contenu Intelligent)
+# 🧱 KERNEL SMAXIA
 # ==============================================================================
 
 KERNEL_MAPPING = {
@@ -39,9 +40,6 @@ KERNEL_MAPPING = {
     "FRT_GEO_01": "GÉOMÉTRIE", "FRT_GEO_02": "GÉOMÉTRIE",
     "FRT_PROBA_01": "PROBABILITÉS", "FRT_PROBA_02": "PROBABILITÉS"
 }
-
-# --- CONTENU PÉDAGOGIQUE (VRAI FRT + SMART TRIGGERS) ---
-# Note : Les QC finissent par "?" et les triggers sont spécifiques.
 
 SMAXIA_KERNEL = {
     "FRT_SUITE_01": {
@@ -167,9 +165,8 @@ SMAXIA_KERNEL = {
     }
 }
 
-# --- GÉNÉRATEUR ---
 QI_TEMPLATES = {
-    "FRT_SUITE_01": ["Montrer que la suite (Un) est géométrique.", "Démontrer que Vn est une suite géométrique.", "Justifier la nature géométrique de la suite."],
+    "FRT_SUITE_01": ["Montrer que (Un) est géométrique.", "Démontrer que Vn est une suite géométrique.", "Justifier la nature géométrique de la suite."],
     "FRT_SUITE_02": ["Déterminer la limite de la suite Un.", "Étudier la convergence de la suite.", "Calculer la limite quand n tend vers l'infini."],
     "FRT_SUITE_03": ["Démontrer par récurrence que Un > 0.", "Montrer par récurrence la propriété P(n).", "Prouver par récurrence que Un < 5."],
     "FRT_FCT_01": ["Étudier les variations de la fonction f.", "Dresser le tableau de variations complet.", "Quel est le sens de variation de f ?"],
@@ -273,7 +270,7 @@ def compute_engine_metrics(df_atoms):
             "FRT_ID": frt_id,
             "QC_Texte": qc_clean,
             "Triggers": kernel["Triggers"],
-            "FRT_Redaction": kernel["FRT_Redaction"], # LISTE DE PHRASES
+            "FRT_Redaction": kernel["FRT_Redaction"],
             "ARI": kernel["ARI"],
             "Score_F2": score,
             "n_q": n_q, "N_tot": N_total, "Tau": tau, "Alpha": alpha, "Psi": psi, "Sigma": sigma,
@@ -283,7 +280,7 @@ def compute_engine_metrics(df_atoms):
     return pd.DataFrame(qcs).sort_values(by=["Chapitre", "Score_F2"], ascending=[True, False])
 
 # ==============================================================================
-# 🖥️ INTERFACE V10.4
+# 🖥️ INTERFACE V10.5
 # ==============================================================================
 
 with st.sidebar:
@@ -317,7 +314,6 @@ with tab_usine:
     if 'df_qc' in st.session_state:
         col_left, col_right = st.columns([1, 1.8])
         
-        # GAUCHE : SUJETS
         with col_left:
             st.markdown(f"### 📥 Sujets ({len(st.session_state['df_src'])})")
             df_display = st.session_state['df_src'][["Fichier", "Nature", "Année"]].copy()
@@ -330,13 +326,12 @@ with tab_usine:
                 txt = st.session_state['df_src'][st.session_state['df_src']["Fichier"]==sel].iloc[0]["Contenu"]
                 st.download_button(f"Télécharger {sel}", txt, file_name=sel)
 
-        # DROITE : QC (4 BOUTONS)
         with col_right:
             if not st.session_state['df_qc'].empty:
                 chapters = st.session_state['df_qc']["Chapitre"].unique()
                 for chap in chapters:
                     df_view = st.session_state['df_qc'][st.session_state['df_qc']["Chapitre"] == chap]
-                    st.markdown(f"#### 📘 Chapitre {chap} : {len(df_view)} QC")
+                    st.markdown(f"#### 📘 {chap} : {len(df_view)} QC")
                     
                     for idx, row in df_view.iterrows():
                         # LIGNE 1 : HEADER
@@ -344,43 +339,49 @@ with tab_usine:
                         <div class="qc-header-row">
                             <span class="qc-id-tag">[{row['QC_ID_Simple']}]</span>
                             <span class="qc-title">{row['QC_Texte']}</span>
-                            <span class="qc-vars">Ψ={row['Psi']} | n_q={row['n_q']} | τ={row['Tau']:.1f} | σ={row['Sigma']}</span>
+                            <span class="qc-vars">
+                                Score(q)={row['Score_F2']:.0f} | 
+                                Ψ={row['Psi']} | 
+                                n_q={row['n_q']} | 
+                                N_tot={row['N_tot']} | 
+                                t_rec={row['Tau']:.1f}
+                            </span>
                         </div>
                         """
                         st.markdown(header_html, unsafe_allow_html=True)
                         
-                        # LIGNE 2 : LES 4 BOUTONS (Expanders)
                         c1, c2, c3, c4 = st.columns(4)
                         
                         # 1. TRIGGERS
                         with c1:
                             with st.expander("⚡ Déclencheurs"):
-                                for t in row['Triggers']:
-                                    st.markdown(f"<div class='trigger-badge'>{t}</div>", unsafe_allow_html=True)
+                                for t in row['Triggers']: st.markdown(f"<div class='trigger-badge'>{t}</div>", unsafe_allow_html=True)
                         
-                        # 2. ARI (MOTEUR)
+                        # 2. ARI
                         with c2:
                             with st.expander(f"⚙️ ARI_{row['QC_ID_Simple']}"):
-                                st.caption("Algorithme de Résolution Invariant (Interne)")
                                 for s in row['ARI']: st.markdown(f"- {s}")
 
-                        # 3. FRT (REDACTION ELEVE)
+                        # 3. FRT
                         with c3:
                             with st.expander(f"📝 FRT_{row['QC_ID_Simple']}"):
-                                st.caption("Fiche Réponse Type (Élève)")
-                                for line in row['FRT_Redaction']:
-                                    st.markdown(f"<div class='frt-step'>{line}</div>", unsafe_allow_html=True)
+                                for line in row['FRT_Redaction']: st.markdown(f"<div class='frt-step'>{line}</div>", unsafe_allow_html=True)
 
-                        # 4. PREUVE QI
+                        # 4. PREUVE QI (Correction : Full Width)
                         with c4:
                             with st.expander(f"📄 Qi associées ({row['n_q']})"):
-                                st.dataframe(pd.DataFrame(row['Evidence']), hide_index=True)
+                                st.dataframe(
+                                    pd.DataFrame(row['Evidence']), 
+                                    hide_index=True, 
+                                    use_container_width=True, # CORRECTION
+                                    column_config={"Qi": st.column_config.TextColumn("Questions Élèves", width="large")}
+                                )
                         
-                        st.write("") # Spacer
+                        st.write("") 
             else:
                 st.warning("Aucune QC.")
 
-# --- TAB 2 : AUDIT ---
+# --- TAB 2 : AUDIT MAPPING ---
 with tab_audit:
     st.subheader("Validation Booléenne (Tableau de Mapping Unifié)")
     
@@ -405,7 +406,7 @@ with tab_audit:
                     c_ok += 1
                     qc_info = qc_lookup.loc[frt_id]
                     if isinstance(qc_info, pd.DataFrame): qc_info = qc_info.iloc[0]
-                    qc_display = f"[{qc_info['QC_ID_Simple']}] {qc_info['QC_Titre_Full']}"
+                    qc_display = f"[{qc_info['QC_ID_Simple']}] {qc_info['QC_Texte']}"
                     frt_display = f"FRT_{qc_info['QC_ID_Simple']}"
                     status = "✅ MATCH"
                 else:
@@ -423,8 +424,7 @@ with tab_audit:
             taux = (c_ok / len(qi_list)) * 100
             st.markdown(f"<div class='stat-metric'>Taux de Couverture : {taux:.0f}%</div>", unsafe_allow_html=True)
             
-            def color_map(val):
-                return f'background-color: {"#dcfce7" if val == "✅ MATCH" else "#fee2e2"}; color: black'
+            def color_map(val): return f'background-color: {"#dcfce7" if val == "✅ MATCH" else "#fee2e2"}; color: black'
             st.dataframe(pd.DataFrame(mapping_rows).style.map(color_map, subset=['Statut']), use_container_width=True)
 
         st.divider()
@@ -445,7 +445,7 @@ with tab_audit:
                     c_ok_ext += 1
                     qc_info = qc_lookup.loc[frt_id]
                     if isinstance(qc_info, pd.DataFrame): qc_info = qc_info.iloc[0]
-                    qc_display = f"[{qc_info['QC_ID_Simple']}] {qc_info['QC_Titre_Full']}"
+                    qc_display = f"[{qc_info['QC_ID_Simple']}] {qc_info['QC_Texte']}"
                     status = "✅ MATCH"
                 else:
                     qc_display = "---"
