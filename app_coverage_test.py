@@ -5,11 +5,11 @@ import random
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V20")
-st.title("🛡️ SMAXIA - Console V20 (Content Revolution)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V21 (Doctrinal Core)")
+st.title("🛡️ SMAXIA - Console V21 (Doctrinal Core)")
 
 # ==============================================================================
-# 🎨 STYLES CSS (FIGÉS ET VALIDÉS)
+# 🎨 STYLES CSS (ALIGNÉS DOCTRINE)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -29,20 +29,37 @@ st.markdown("""
         background-color: #e5e7eb; padding: 5px 10px; border-radius: 4px; white-space: nowrap; margin-left: 10px;
     }
 
-    /* DETAILS */
+    /* DETAILS : TRIGGER (OBSERVABLE) */
     .trigger-container { background-color: #fff1f2; padding: 10px; border-radius: 6px; border: 1px solid #fecdd3; }
-    .trigger-item { background-color: #ffffff; color: #be123c; padding: 4px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 700; border: 1px solid #fda4af; display: inline-block; margin: 3px; }
-    
-    .ari-box { background-color: #f3f4f6; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.9em; color: #374151; border: 1px dashed #9ca3af; }
-    
-    /* FRT SMAXIA : Style "Fiche de Révision" */
-    .frt-box { 
-        background-color: #ffffff; border: 1px solid #cbd5e1; border-left: 6px solid #10b981; 
-        padding: 20px; border-radius: 4px; font-family: 'Segoe UI', sans-serif; line-height: 1.6; color: #334155; 
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    .trigger-item { 
+        background-color: #ffffff; color: #be123c; padding: 4px 8px; 
+        border-radius: 4px; font-size: 0.85em; font-weight: 700; 
+        border: 1px solid #fda4af; display: inline-block; margin: 3px;
+        box-shadow: 0 1px 1px rgba(0,0,0,0.05);
     }
-    .frt-section { font-weight: bold; color: #047857; margin-top: 10px; display: block; text-transform: uppercase; font-size: 0.85em;}
     
+    /* DETAILS : ARI (LOGIQUE MOTEUR) */
+    .ari-box { 
+        background-color: #f3f4f6; padding: 10px; border-radius: 6px; 
+        font-family: monospace; font-size: 0.9em; color: #374151; 
+        border: 1px dashed #9ca3af; 
+    }
+    
+    /* DETAILS : FRT (PEDAGOGIE) */
+    .frt-box { 
+        background-color: #ffffff; padding: 15px; border-radius: 6px; 
+        font-family: 'Segoe UI', sans-serif; line-height: 1.6; color: #334155; 
+        border: 1px solid #cbd5e1; border-left: 5px solid #10b981;
+    }
+    .frt-section-title {
+        font-weight: 800; text-transform: uppercase; font-size: 0.8em; 
+        margin-top: 12px; margin-bottom: 4px; display: block;
+    }
+    .frt-section-usage { color: #d97706; } /* Orange pour Quand utiliser */
+    .frt-section-method { color: #059669; } /* Vert pour Méthode */
+    .frt-section-trap { color: #dc2626; }   /* Rouge pour Pièges */
+    .frt-section-conclusion { color: #2563eb; } /* Bleu pour Conclusion */
+
     /* TABLEAUX HTML */
     .qi-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
     .qi-table th { background: #f9fafb; text-align: left; padding: 8px; border-bottom: 2px solid #e5e7eb; color: #6b7280; }
@@ -51,8 +68,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. LISTE CHAPITRES
+# 1. DATA KERNEL (DOCTRINE APPLIQUÉE)
 # ==============================================================================
+
 LISTE_CHAPITRES = {
     "MATHS": [
         "SUITES NUMÉRIQUES", "FONCTIONS & DÉRIVATION", "LIMITES DE FONCTIONS", 
@@ -64,142 +82,164 @@ LISTE_CHAPITRES = {
     ]
 }
 
-# ==============================================================================
-# 2. KERNEL SMAXIA (CONTENU HAUTE FIDÉLITÉ)
-# ==============================================================================
-
 UNIVERS_SMAXIA = {
     # --- MATHS : SUITES ---
     "FRT_M_SUITE_01": {
         "Matiere": "MATHS", "Chap": "SUITES NUMÉRIQUES", "Proba": 0.9,
         "QC": "comment démontrer qu'une suite est géométrique ?",
-        # TRIGGERS : Mots exacts de l'énoncé
-        "Triggers": ["montrer que la suite est géométrique", "déterminer la nature de la suite", "préciser la raison q"],
-        # ARI : La structure logique (Le squelette)
+        # TRIGGERS : Textuels & Observables (3 à 5)
+        "Triggers": [
+            "montrer que la suite est géométrique",
+            "déterminer la nature de la suite",
+            "préciser la raison q",
+            "justifier que (Un) est une suite géométrique"
+        ],
+        # ARI : Squelette Invariant
         "ARI": ["Expression u(n+1)", "Quotient u(n+1)/u(n)", "Simplification", "Identification Constante"],
-        # FRT : La chair (Ce que l'élève écrit sur sa copie)
+        # FRT : Rédaction Complète (4 Blocs)
         "FRT": """
-<span class='frt-section'>🔔 Situation</span>
-L'énoncé demande de prouver que $(u_n)$ est géométrique, souvent définie par une relation de récurrence.
+<span class='frt-section-title frt-section-usage'>🔔 1. Quand utiliser cette méthode ?</span>
+Lorsque l'énoncé demande explicitement la **nature** de la suite ou de montrer qu'elle est **géométrique**, et que la suite est définie par une relation de récurrence.
 
-<span class='frt-section'>✅ Rédaction Type (Copie Élève)</span>
-1. **Pour tout entier naturel $n$, exprimons $u_{n+1}$ :**
-   On remplace $u_{n+1}$ par son expression donnée dans l'énoncé.
-   
-2. **Calculons le rapport :**
-   $\\frac{u_{n+1}}{u_n} = \\frac{\\dots}{u_n}$
-   
-3. **Simplification :**
-   On factorise ou on simplifie l'expression jusqu'à éliminer tous les termes en $n$.
-   On obtient : $\\frac{u_{n+1}}{u_n} = q$ (où $q$ est un nombre réel).
+<span class='frt-section-title frt-section-method'>✅ 2. Méthode Rédigée (Points assurés)</span>
+1. "Pour tout entier naturel $n$, exprimons $u_{n+1}$ en fonction de $n$." (On utilise la définition).
+2. "Calculons le rapport $\\frac{u_{n+1}}{u_n}$."
+3. "Simplifions l'expression." (Les termes en $n$ doivent s'annuler).
+4. "On obtient une constante réelle $q$."
 
-4. **Conclusion :**
-   Le rapport entre deux termes consécutifs étant constant, la suite $(u_n)$ est **géométrique** de raison $q$ et de premier terme $u_0 = \\dots$
+<span class='frt-section-title frt-section-trap'>⚠️ 3. Erreurs & Pièges à éviter</span>
+❌ Oublier de vérifier que $u_n \\neq 0$ avant de diviser.
+❌ Confondre avec la méthode pour une suite arithmétique ($u_{n+1} - u_n$).
+❌ Ne pas conclure clairement avec la valeur de la raison.
+
+<span class='frt-section-title frt-section-conclusion'>✍️ 4. Modèle de Conclusion</span>
+"Le rapport entre deux termes consécutifs étant constant et égal à $q$, la suite $(u_n)$ est géométrique de raison $q$."
 """
     },
     
     "FRT_M_SUITE_02": {
         "Matiere": "MATHS", "Chap": "SUITES NUMÉRIQUES", "Proba": 0.8,
         "QC": "comment lever une indétermination (limite) ?",
-        "Triggers": ["déterminer la limite", "calculer la limite quand n tend vers +infini"],
+        # TRIGGERS : Mots de l'énoncé (pas d'interprétation)
+        "Triggers": [
+            "calculer la limite de la suite",
+            "déterminer la limite quand n tend vers +infini",
+            "étudier la convergence de (Un)",
+            "expression polynomiale ou rationnelle en n"
+        ],
         "ARI": ["Identification FI", "Factorisation Forcée (Terme Dominant)", "Limites Usuelles", "Opérations"],
         "FRT": """
-<span class='frt-section'>🔔 Situation</span>
-On cherche une limite mais on tombe sur $\\infty - \\infty$ ou $\\frac{\\infty}{\\infty}$.
+<span class='frt-section-title frt-section-usage'>🔔 1. Quand utiliser cette méthode ?</span>
+Lorsque l'on doit calculer la limite d'une suite définie par une expression en $n$ (polynôme ou fraction) et que le calcul direct mène à une forme $\\infty - \\infty$ ou $\\frac{\\infty}{\\infty}$.
 
-<span class='frt-section'>✅ Rédaction Type (Copie Élève)</span>
-1. **Identification :**
-   "Nous sommes en présence d'une forme indéterminée."
-
-2. **Factorisation par le terme dominant :**
-   "Pour tout $n > 0$, factorisons par $n^k$ (le terme de plus haut degré) :"
+<span class='frt-section-title frt-section-method'>✅ 2. Méthode Rédigée (Points assurés)</span>
+1. "Identifions le terme de plus haut degré (terme dominant) : ici $n^k$."
+2. "Factorisons toute l'expression par ce terme dominant $n^k$."
    $u_n = n^k \\times ( ... )$
+3. "Utilisons les limites usuelles : on sait que $\\lim_{n \\to +\\infty} \\frac{1}{n} = 0$."
+4. "Par produit et somme de limites, concluons."
 
-3. **Utilisation des limites usuelles :**
-   "Or, on sait que $\\lim_{n \\to +\\infty} \\frac{1}{n} = 0$."
+<span class='frt-section-title frt-section-trap'>⚠️ 3. Erreurs & Pièges à éviter</span>
+❌ Appliquer la "règle des signes" sans factoriser (interdit).
+❌ Oublier de factoriser le numérateur ET le dénominateur dans une fraction.
+❌ Écrire "$\\infty / \\infty$" sur la copie (c'est un brouillon).
 
-4. **Conclusion :**
-   "Par produit et somme de limites, on en déduit que : $\\lim_{n \\to +\\infty} u_n = \\dots$"
+<span class='frt-section-title frt-section-conclusion'>✍️ 4. Modèle de Conclusion</span>
+"Ainsi, par opérations sur les limites, $\\lim_{n \\to +\\infty} u_n = \\dots$"
 """
     },
 
     "FRT_M_FCT_02": {
         "Matiere": "MATHS", "Chap": "FONCTIONS & DÉRIVATION", "Proba": 0.9,
         "QC": "comment appliquer le TVI (solution unique) ?",
-        "Triggers": ["montrer que l'équation admet une unique solution", "démontrer qu'il existe un unique réel alpha", "théorème des valeurs intermédiaires"],
+        "Triggers": [
+            "montrer que l'équation f(x)=k admet une unique solution",
+            "démontrer qu'il existe un unique réel alpha",
+            "justifier l'existence et l'unicité de la solution",
+            "théorème des valeurs intermédiaires"
+        ],
         "ARI": ["Continuité", "Monotonie Stricte", "Images Bornes", "Corollaire TVI"],
         "FRT": """
-<span class='frt-section'>🔔 Situation</span>
-On doit prouver l'existence et l'unicité d'une solution à $f(x)=k$ (souvent $f(x)=0$).
+<span class='frt-section-title frt-section-usage'>🔔 1. Quand utiliser cette méthode ?</span>
+Pour prouver l'existence et l'unicité d'une solution à une équation $f(x)=k$ (souvent $f(x)=0$) sans pouvoir la résoudre explicitement.
 
-<span class='frt-section'>✅ Rédaction Type (Copie Élève)</span>
-1. **Hypothèses :**
-   "La fonction $f$ est **continue** et **strictement monotone** (croissante/décroissante) sur l'intervalle $I=[a;b]$."
+<span class='frt-section-title frt-section-method'>✅ 2. Méthode Rédigée (Points assurés)</span>
+1. "La fonction $f$ est **continue** sur l'intervalle $I=[a;b]$." (Condition d'existence).
+2. "La fonction $f$ est **strictement monotone** (strictement croissante ou décroissante) sur $I$." (Condition d'unicité).
+3. "Calculons les images aux bornes : $f(a) = \\dots$ et $f(b) = \\dots$."
+4. "On constate que la valeur $k$ est comprise entre $f(a)$ et $f(b)$."
 
-2. **Images aux bornes :**
-   "De plus, $f(a) = \\dots$ et $f(b) = \\dots$."
-   "On constate que $k$ est compris entre $f(a)$ et $f(b)$."
+<span class='frt-section-title frt-section-trap'>⚠️ 3. Erreurs & Pièges à éviter</span>
+❌ Oublier le mot "**strictement**" pour la monotonie (sinon pas d'unicité).
+❌ Oublier la **continuité** (sinon pas d'existence assurée).
+❌ Confondre le théorème des valeurs intermédiaires (existence seule) et son corollaire (unicité).
 
-3. **Invocation du Théorème :**
-   "D'après le **corollaire du Théorème des Valeurs Intermédiaires**, l'équation $f(x)=k$ admet donc une **unique solution** $\\alpha$ sur l'intervalle $I$."
+<span class='frt-section-title frt-section-conclusion'>✍️ 4. Modèle de Conclusion</span>
+"D'après le corollaire du Théorème des Valeurs Intermédiaires, l'équation $f(x)=k$ admet une unique solution $\\alpha$ sur l'intervalle $I$."
 """
     },
 
-    "FRT_M_GEO_01": {
-        "Matiere": "MATHS", "Chap": "GÉOMÉTRIE DANS L'ESPACE", "Proba": 0.7,
-        "QC": "comment démontrer l'orthogonalité droite/plan ?",
-        "Triggers": ["démontrer que la droite est orthogonale au plan", "prouver que (d) est perpendiculaire à (P)"],
-        "ARI": ["Vecteur Directeur u", "Base Plan (v1, v2)", "Produits Scalaires Nuls", "Conclusion"],
+    "FRT_P_MECA_01": {
+        "Matiere": "PHYSIQUE", "Chap": "MÉCANIQUE DE NEWTON", "Proba": 0.9,
+        "QC": "comment déterminer le vecteur accélération ?",
+        "Triggers": [
+            "déterminer les coordonnées du vecteur accélération",
+            "appliquer la deuxième loi de newton",
+            "trouver l'expression de a(t)",
+            "faire le bilan des forces et conclure"
+        ],
+        "ARI": ["Référentiel", "Bilan Forces", "2e Loi Newton", "Projection"],
         "FRT": """
-<span class='frt-section'>🔔 Situation</span>
-On doit montrer qu'une droite $(d)$ est orthogonale à un plan $(P)$.
+<span class='frt-section-title frt-section-usage'>🔔 1. Quand utiliser cette méthode ?</span>
+Pour trouver l'accélération d'un système à partir des forces qui s'exercent sur lui (dynamique).
 
-<span class='frt-section'>✅ Rédaction Type (Copie Élève)</span>
-1. **Identification des vecteurs :**
-   "Soit $\\vec{u}$ un vecteur directeur de $(d)$ et $\\vec{v_1}, \\vec{v_2}$ deux vecteurs directeurs non colinéaires du plan $(P)$."
+<span class='frt-section-title frt-section-method'>✅ 2. Méthode Rédigée (Points assurés)</span>
+1. "On étudie le système { ... } dans le référentiel { ... } supposé galiléen."
+2. "Bilan des forces extérieures : { ... }."
+3. "On applique la deuxième loi de Newton : $\\sum \\vec{F}_{ext} = m\\vec{a}$."
+4. "Projetons cette relation vectorielle sur les axes du repère $(O, \\vec{i}, \\vec{j})$."
 
-2. **Calcul des produits scalaires :**
-   "Calculons les produits scalaires :"
-   $\\vec{u} \\cdot \\vec{v_1} = xx' + yy' + zz' = 0$
-   $\\vec{u} \\cdot \\vec{v_2} = ... = 0$
+<span class='frt-section-title frt-section-trap'>⚠️ 3. Erreurs & Pièges à éviter</span>
+❌ Oublier de préciser "Référentiel Galiléen".
+❌ Oublier une force (Poids, Réaction, Frottements).
+❌ Erreur de signe lors de la projection sur les axes.
 
-3. **Conclusion :**
-   "Le vecteur $\\vec{u}$ est orthogonal à deux vecteurs directeurs non colinéaires de $(P)$. La droite $(d)$ est donc orthogonale au plan $(P)$."
+<span class='frt-section-title frt-section-conclusion'>✍️ 4. Modèle de Conclusion</span>
+"Ainsi, les coordonnées du vecteur accélération sont $a_x = \\dots$ et $a_y = \\dots$."
 """
     }
 }
 
-# Générateur Polymorphe (Pour simuler la diversité des énoncés)
+# Générateur Polymorphe
 QI_PATTERNS = {
     "FRT_M_SUITE_01": [
         "Montrer que la suite (Un) est géométrique.", 
-        "Démontrer que (Vn) est une suite géométrique de raison 1/2.", 
-        "Quelle est la nature de la suite (Wn) ?"
+        "Quelle est la nature de la suite (Vn) ?", 
+        "Justifier que la suite est géométrique de raison 3."
     ],
     "FRT_M_SUITE_02": [
-        "Déterminer la limite de la suite (Un).", 
-        "Calculer la limite quand n tend vers +infini.", 
-        "La suite converge-t-elle ?"
+        "Déterminer la limite de la suite.", 
+        "Calculer la limite quand n tend vers l'infini.", 
+        "Étudier la convergence de la suite (Un)."
     ],
     "FRT_M_FCT_02": [
-        "Montrer que l'équation f(x)=0 admet une unique solution alpha.", 
-        "Prouver qu'il existe un unique réel alpha tel que g(alpha)=3.", 
-        "Démontrer l'existence et l'unicité de la solution."
+        "Montrer que l'équation f(x)=0 a une unique solution alpha.", 
+        "Démontrer qu'il existe un unique réel alpha tel que g(alpha)=3."
     ],
-    "FRT_M_GEO_01": [
-        "Démontrer que la droite (AB) est orthogonale au plan (P).",
-        "Prouver que le vecteur n est normal au plan (ABC).",
-        "La droite (d) est-elle perpendiculaire au plan ?"
+    "FRT_P_MECA_01": [
+        "En déduire les coordonnées du vecteur accélération.", 
+        "Appliquer la 2e loi de Newton pour trouver a(t)."
     ]
 }
 
 # ==============================================================================
-# 3. MOTEUR D'INGESTION & CALCUL (INCHANGÉ CAR VALIDÉ)
+# 3. MOTEUR D'INGESTION & CALCUL
 # ==============================================================================
 
-def ingest_factory(urls, volume, matiere, chapitres):
-    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere and v["Chap"] in chapitres]
-    if not target_frts and volume > 0: return pd.DataFrame(), pd.DataFrame()
+def ingest_factory(urls, volume, matiere):
+    """Sourcing et Extraction Globale par Matière"""
+    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
+    if not target_frts: return pd.DataFrame(), pd.DataFrame()
     
     sources, atoms = [], []
     progress = st.progress(0)
@@ -210,7 +250,8 @@ def ingest_factory(urls, volume, matiere, chapitres):
         annee = random.choice(range(2020, 2025))
         filename = f"Sujet_{matiere}_{nature}_{annee}_{i}.pdf"
         
-        nb_qi = random.randint(3, 6)
+        # Un sujet contient plusieurs exos de différents chapitres de la matière
+        nb_qi = random.randint(4, 8)
         frts = random.choices(target_frts, k=nb_qi)
         
         qi_data_list = []
@@ -248,8 +289,8 @@ def compute_qc(df_atoms):
         })
     return pd.DataFrame(qcs).sort_values(by="Score", ascending=False)
 
-def analyze_external(file_obj, matiere, chapitres):
-    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere and v["Chap"] in chapitres]
+def analyze_external(file_obj, matiere):
+    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
     if not target_frts: return []
     nb_qi = 15
     frts = random.choices(target_frts, k=nb_qi)
@@ -260,7 +301,7 @@ def analyze_external(file_obj, matiere, chapitres):
     return result
 
 # ==============================================================================
-# 3. INTERFACE (UI VALIDÉE)
+# 4. INTERFACE
 # ==============================================================================
 
 with st.sidebar:
@@ -282,7 +323,7 @@ with tab_usine:
         run = st.button("LANCER L'USINE 🚀", type="primary")
 
     if run:
-        df_src, df_atoms = ingest_factory(urls.split('\n'), vol, sel_matiere, sel_chapitres)
+        df_src, df_atoms = ingest_factory(urls.split('\n'), vol, sel_matiere)
         df_qc = compute_qc(df_atoms)
         st.session_state['df_src'] = df_src
         st.session_state['df_qc'] = df_qc
@@ -292,7 +333,6 @@ with tab_usine:
 
     if 'df_src' in st.session_state and not st.session_state['df_src'].empty:
         st.markdown(f"### 📥 Sujets Traités ({len(st.session_state['df_src'])})")
-        
         st.data_editor(
             st.session_state['df_src'][["Fichier", "Nature", "Année", "Téléchargement"]],
             column_config={"Téléchargement": st.column_config.LinkColumn("Téléchargement", display_text="📥 Télécharger PDF")},
@@ -326,7 +366,7 @@ with tab_usine:
                         
                         c1, c2, c3, c4 = st.columns(4)
                         with c1:
-                            with st.expander("🔥 Déclencheurs"):
+                            with st.expander("🔥 Déclencheurs (Observables)"):
                                 html_trig = "<div class='trigger-container'>"
                                 for t in row['Triggers']: html_trig += f"<span class='trigger-item'>{t}</span>"
                                 html_trig += "</div>"
@@ -385,10 +425,9 @@ with tab_audit:
         up_file = st.file_uploader("Charger un PDF externe", type="pdf")
         
         if up_file:
-            extracted_qi = analyze_external(up_file, sel_matiere, sel_chapitres)
-            
+            extracted_qi = analyze_external(up_file, sel_matiere)
             if not extracted_qi:
-                st.error("Aucune Qi reconnue ou hors périmètre.")
+                st.error("Aucune Qi reconnue.")
             else:
                 rows_ext = []
                 ok_ext = 0
