@@ -5,8 +5,8 @@ import random
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V19.1")
-st.title("🛡️ SMAXIA - Console V19.1 (Audit & Download Fix)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V19.2")
+st.title("🛡️ SMAXIA - Console V19.2 (Logic Fix)")
 
 # ==============================================================================
 # 🎨 STYLES CSS
@@ -80,6 +80,13 @@ UNIVERS_SMAXIA = {
         "ARI": ["Dérivée f'", "Signe f'", "Tableau"],
         "FRT": """🔔 **Quand utiliser ?** Pour connaitre la croissance.\n\n✅ **Méthode Standard :**\n1. Calculer $f'(x)$.\n2. Étudier le signe.\n3. Conclure sur les variations."""
     },
+    "FRT_M_FCT_02": {
+        "Matiere": "MATHS", "Chap": "FONCTIONS & DÉRIVATION", "Proba": 0.7,
+        "QC": "comment appliquer le TVI (solution unique) ?",
+        "Triggers": ["montrer que f(x)=k admet une unique solution", "théorème des valeurs intermédiaires"],
+        "ARI": ["Continuité", "Monotonie", "Bornes", "Corollaire"],
+        "FRT": """🔔 **Quand utiliser ?** Existence et unicité d'une solution.\n\n✅ **Méthode Standard :**\n1. Continuité et Monotonie.\n2. Images aux bornes.\n3. Corollaire du TVI."""
+    },
     "FRT_P_MECA_01": {
         "Matiere": "PHYSIQUE", "Chap": "MÉCANIQUE DE NEWTON", "Proba": 0.9,
         "QC": "comment déterminer le vecteur accélération ?",
@@ -93,16 +100,25 @@ QI_PATTERNS = {
     "FRT_M_SUITE_01": ["Montrer que (Un) est géométrique.", "Quelle est la nature de la suite (Vn) ?", "Justifier que la suite est géométrique de raison 3."],
     "FRT_M_SUITE_02": ["Déterminer la limite de la suite.", "Calculer la limite quand n tend vers l'infini.", "Étudier la convergence."],
     "FRT_M_FCT_01": ["Étudier les variations de f.", "Dresser le tableau de variations complet.", "Quel est le sens de variation de la fonction ?"],
+    "FRT_M_FCT_02": ["Montrer que l'équation f(x)=0 admet une unique solution alpha.", "Démontrer l'existence d'une solution unique."],
     "FRT_P_MECA_01": ["En déduire les coordonnées du vecteur accélération.", "Appliquer la 2e loi de Newton pour trouver a(t)."]
 }
 
 # ==============================================================================
-# 2. MOTEUR
+# 2. MOTEUR (CORRIGÉ : INGESTION GLOBALE)
 # ==============================================================================
 
-def ingest_factory(urls, volume, matiere, chapitres):
-    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere and v["Chap"] in chapitres]
-    if not target_frts and volume > 0: return pd.DataFrame(), pd.DataFrame()
+def ingest_factory(urls, volume, matiere):
+    """
+    CORRECTION MAJEURE : 
+    On ingère TOUT ce qui concerne la MATIÈRE, indépendamment des chapitres cochés.
+    Le filtrage chapitre se fera uniquement à l'affichage.
+    """
+    # Univers de la matière complète
+    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
+    
+    # Si l'univers est vide (ex: Chimie pas encore implémentée dans le dict), on renvoie vide
+    if not target_frts: return pd.DataFrame(), pd.DataFrame()
     
     sources, atoms = [], []
     progress = st.progress(0)
@@ -113,22 +129,28 @@ def ingest_factory(urls, volume, matiere, chapitres):
         annee = random.choice(range(2020, 2025))
         filename = f"Sujet_{matiere}_{nature}_{annee}_{i}.pdf"
         
-        # Pour l'audit, on veut BEAUCOUP de Qi dans le sujet
-        nb_qi = random.randint(5, 12) 
+        # Génération de Qi : On pioche aléatoirement dans TOUTE la matière
+        # Un sujet de BAC contient souvent plusieurs chapitres
+        nb_qi = random.randint(5, 10) 
         frts = random.choices(target_frts, k=nb_qi)
         
         qi_data_list = []
         for frt_id in frts:
-            qi_txt = random.choice(QI_PATTERNS[frt_id]) + f" [Ex:{random.randint(1,20)}]"
-            atoms.append({"FRT_ID": frt_id, "Qi": qi_txt, "File": filename, "Year": annee, "Chap": UNIVERS_SMAXIA[frt_id]["Chap"]})
+            qi_txt = random.choice(QI_PATTERNS.get(frt_id, ["Question standard"])) + f" [Ex:{random.randint(1,20)}]"
+            # On stocke l'atome avec son chapitre
+            atoms.append({
+                "FRT_ID": frt_id, 
+                "Qi": qi_txt, 
+                "File": filename, 
+                "Year": annee, 
+                "Chap": UNIVERS_SMAXIA[frt_id]["Chap"]
+            })
             qi_data_list.append({"Qi": qi_txt, "FRT_ID": frt_id})
             
-        # Lien simulé pour data_editor
-        dl_link = f"https://fake-smaxia-cloud.com/dl/{filename}"
-        
+        # Lien simulé
         sources.append({
             "Fichier": filename, "Nature": nature, "Année": annee,
-            "Télécharger": dl_link, # Le lien qui sera cliquable
+            "Téléchargement": f"https://fake-cloud/dl/{filename}",
             "Blob": f"Contenu simulé de {filename}", "Qi_Data": qi_data_list
         })
         
@@ -136,6 +158,8 @@ def ingest_factory(urls, volume, matiere, chapitres):
 
 def compute_qc(df_atoms):
     if df_atoms.empty: return pd.DataFrame()
+    
+    # Groupement par FRT (Structure Unique)
     grouped = df_atoms.groupby("FRT_ID").agg({"Qi": list, "File": list, "Year": "max", "Chap": "first"}).reset_index()
     qcs = []
     N_tot = len(df_atoms)
@@ -154,17 +178,16 @@ def compute_qc(df_atoms):
         })
     return pd.DataFrame(qcs).sort_values(by="Score", ascending=False)
 
-def analyze_external(file_obj, matiere, chapitres):
-    # Simulation d'extraction sur un gros fichier
-    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere and v["Chap"] in chapitres]
+def analyze_external(file_obj, matiere):
+    # Simulation sur la matière entière
+    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
     if not target_frts: return []
     
-    # On simule un sujet long (15 questions)
     nb_qi = 15
     frts = random.choices(target_frts, k=nb_qi)
     result = []
     for frt_id in frts:
-        qi_txt = random.choice(QI_PATTERNS[frt_id]) + " (Extrait PDF)"
+        qi_txt = random.choice(QI_PATTERNS.get(frt_id, ["Question externe"])) + " (Extrait PDF)"
         result.append({"Qi": qi_txt, "FRT_ID": frt_id})
     return result
 
@@ -176,7 +199,10 @@ with st.sidebar:
     st.header("Paramètres Académiques")
     st.selectbox("Classe", ["Terminale"], disabled=True)
     sel_matiere = st.selectbox("Matière", ["MATHS", "PHYSIQUE"])
-    sel_chapitres = st.multiselect("Chapitres", LISTE_CHAPITRES[sel_matiere], default=[LISTE_CHAPITRES[sel_matiere][0]])
+    
+    # Choix des chapitres pour l'AFFICHAGE, pas pour l'usine
+    chaps_dispo = LISTE_CHAPITRES.get(sel_matiere, [])
+    sel_chapitres = st.multiselect("Chapitres (Filtre d'affichage)", chaps_dispo, default=chaps_dispo)
 
 tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine", "✅ Onglet 2 : Audit"])
 
@@ -190,75 +216,80 @@ with tab_usine:
         run = st.button("LANCER L'USINE 🚀", type="primary")
 
     if run:
-        df_src, df_atoms = ingest_factory(urls.split('\n'), vol, sel_matiere, sel_chapitres)
+        # CORRECTION : On passe uniquement la matière, pas les chapitres
+        df_src, df_atoms = ingest_factory(urls.split('\n'), vol, sel_matiere)
         df_qc = compute_qc(df_atoms)
         st.session_state['df_src'] = df_src
         st.session_state['df_qc'] = df_qc
-        st.success(f"Ingestion terminée : {len(df_src)} sujets traités.")
+        st.success(f"Ingestion terminée : {len(df_src)} sujets traités (Global {sel_matiere}).")
 
     st.divider()
 
     if 'df_src' in st.session_state and not st.session_state['df_src'].empty:
-        # TABLEAU SUJETS (Téléchargement via LinkColumn)
+        # TABLEAU SUJETS
         st.markdown(f"### 📥 Sujets Traités ({len(st.session_state['df_src'])})")
         
         st.data_editor(
             st.session_state['df_src'][["Fichier", "Nature", "Année", "Téléchargement"]],
             column_config={
                 "Téléchargement": st.column_config.LinkColumn(
-                    "Téléchargement",
-                    help="Cliquer pour télécharger",
-                    validate="^https://.*",
-                    display_text="📥 Télécharger PDF"
+                    "Téléchargement", display_text="📥 Télécharger PDF"
                 )
             },
             hide_index=True,
             use_container_width=True,
-            disabled=True # Lecture seule
+            disabled=True
         )
 
         st.divider()
 
-        # LISTE QC
+        # LISTE QC (FILTRÉE PAR LA SIDEBAR ICI)
         st.markdown("### 🧠 Base de Connaissance (QC)")
         if not st.session_state['df_qc'].empty:
-            chapters = st.session_state['df_qc']["Chapitre"].unique()
-            for chap in chapters:
-                subset = st.session_state['df_qc'][st.session_state['df_qc']["Chapitre"] == chap]
-                st.markdown(f"#### 📘 Chapitre {chap} : {len(subset)} QC")
-                
-                for idx, row in subset.iterrows():
-                    st.markdown(f"""
-                    <div class="qc-header-row">
-                        <div class="qc-title-group">
-                            <span class="qc-id">{row['QC_ID']}</span>
-                            <span class="qc-text">{row['Titre']}</span>
-                        </div>
-                        <span class="qc-stats">Score(q)={row['Score']:.0f} | n_q={row['n_q']} | Ψ={row['Psi']} | N_tot={row['N_tot']} | t_rec={row['t_rec']:.1f}</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+            
+            # FILTRE D'AFFICHAGE
+            df_qc_filtered = st.session_state['df_qc'][st.session_state['df_qc']["Chapitre"].isin(sel_chapitres)]
+            
+            if df_qc_filtered.empty:
+                st.info(f"Aucune QC trouvée pour les chapitres sélectionnés ({len(st.session_state['df_qc'])} QC au total dans la matière).")
+            else:
+                chapters = df_qc_filtered["Chapitre"].unique()
+                for chap in chapters:
+                    subset = df_qc_filtered[df_qc_filtered["Chapitre"] == chap]
+                    st.markdown(f"#### 📘 Chapitre {chap} : {len(subset)} QC")
                     
-                    c1, c2, c3, c4 = st.columns(4)
-                    with c1:
-                        with st.expander("🔥 Déclencheurs"):
-                            html_trig = "<div class='trigger-container'>"
-                            for t in row['Triggers']: html_trig += f"<span class='trigger-item'>{t}</span>"
-                            html_trig += "</div>"
-                            st.markdown(html_trig, unsafe_allow_html=True)
-                    with c2:
-                        with st.expander("⚙️ ARI (Moteur)"):
-                            st.markdown(f"<div class='ari-box'>{' > '.join(row['ARI'])}</div>", unsafe_allow_html=True)
-                    with c3:
-                        with st.expander("🧾 FRT (Élève)"):
-                            st.markdown(f"<div class='frt-box'>{row['FRT']}</div>", unsafe_allow_html=True)
-                    with c4:
-                        with st.expander(f"📄 Qi ({row['n_q']})"):
-                            html = "<table class='qi-table'>"
-                            for item in row['Evidence']:
-                                html += f"<tr><td>{item['Fichier']}</td><td>{item['Qi']}</td></tr>"
-                            html += "</table>"
-                            st.markdown(html, unsafe_allow_html=True)
-                    st.write("")
+                    for idx, row in subset.iterrows():
+                        st.markdown(f"""
+                        <div class="qc-header-row">
+                            <div class="qc-title-group">
+                                <span class="qc-id">{row['QC_ID']}</span>
+                                <span class="qc-text">{row['Titre']}</span>
+                            </div>
+                            <span class="qc-stats">Score(q)={row['Score']:.0f} | n_q={row['n_q']} | Ψ={row['Psi']} | N_tot={row['N_tot']} | t_rec={row['t_rec']:.1f}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        c1, c2, c3, c4 = st.columns(4)
+                        with c1:
+                            with st.expander("🔥 Déclencheurs"):
+                                html_trig = "<div class='trigger-container'>"
+                                for t in row['Triggers']: html_trig += f"<span class='trigger-item'>{t}</span>"
+                                html_trig += "</div>"
+                                st.markdown(html_trig, unsafe_allow_html=True)
+                        with c2:
+                            with st.expander("⚙️ ARI (Moteur)"):
+                                st.markdown(f"<div class='ari-box'>{' > '.join(row['ARI'])}</div>", unsafe_allow_html=True)
+                        with c3:
+                            with st.expander("🧾 FRT (Élève)"):
+                                st.markdown(f"<div class='frt-box'>{row['FRT']}</div>", unsafe_allow_html=True)
+                        with c4:
+                            with st.expander(f"📄 Qi ({row['n_q']})"):
+                                html = "<table class='qi-table'>"
+                                for item in row['Evidence']:
+                                    html += f"<tr><td>{item['Fichier']}</td><td>{item['Qi']}</td></tr>"
+                                html += "</table>"
+                                st.markdown(html, unsafe_allow_html=True)
+                        st.write("")
         else:
             st.warning("Aucune QC générée.")
 
@@ -273,7 +304,6 @@ with tab_audit:
         t1_file = st.selectbox("Choisir un sujet traité", st.session_state['df_src']["Fichier"])
         
         if st.button("LANCER TEST INTERNE"):
-            # Extraction COMPLETE des Qi du sujet
             data = st.session_state['df_src'][st.session_state['df_src']["Fichier"]==t1_file].iloc[0]["Qi_Data"]
             known_ids = st.session_state['df_qc']["FRT_ID"].unique()
             
@@ -286,8 +316,8 @@ with tab_audit:
                 
                 qc_nom = "---"
                 if is_ok:
-                    qc_info = st.session_state['df_qc'][st.session_state['df_qc']["FRT_ID"]==item["FRT_ID"]].iloc[0]
-                    qc_nom = f"{qc_info['QC_ID']} {qc_info['Titre']}"
+                    info = st.session_state['df_qc'][st.session_state['df_qc']["FRT_ID"]==item["FRT_ID"]].iloc[0]
+                    qc_nom = f"{info['QC_ID']} {info['Titre']}"
                 
                 rows.append({"Qi (Sujet)": item["Qi"], "QC Moteur": qc_nom, "Statut": status})
             
@@ -302,7 +332,7 @@ with tab_audit:
         up_file = st.file_uploader("Charger un PDF externe", type="pdf")
         
         if up_file:
-            extracted_qi = analyze_external(up_file, sel_matiere, sel_chapitres)
+            extracted_qi = analyze_external(up_file, sel_matiere)
             
             if not extracted_qi:
                 st.error("Aucune Qi reconnue ou hors périmètre.")
