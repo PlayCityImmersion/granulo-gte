@@ -6,10 +6,10 @@ import time
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V10.6")
-st.title("🛡️ SMAXIA - Console V10.6 (Operational Kernel)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V10.7")
+st.title("🛡️ SMAXIA - Console V10.7 (Full Height)")
 
-# Styles CSS (Optimisé pour la lecture FRT)
+# Styles CSS (Optimisé pour Full Height sans scroll interne)
 st.markdown("""
 <style>
     .qc-header-row { 
@@ -24,22 +24,26 @@ st.markdown("""
         background-color: #e5e7eb; padding: 6px 12px; border-radius: 4px; border: 1px solid #9ca3af;
         white-space: nowrap;
     }
-    /* Styles pour la FRT Opérationnelle */
-    .frt-box { background-color: #ffffff; border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; }
-    .frt-section { margin-bottom: 12px; }
-    .frt-title { font-weight: bold; color: #1e40af; font-size: 1em; margin-bottom: 4px; }
+    /* FRT Full Height */
+    .frt-box { 
+        background-color: #ffffff; border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; 
+        height: auto !important; overflow: visible !important;
+    }
     .trigger-badge { 
         background-color: #fef3c7; color: #92400e; padding: 4px 10px; 
         border-radius: 6px; font-size: 0.95em; font-weight: 600; 
         border: 1px solid #fcd34d; display: block; margin-bottom: 4px;
-        line-height: 1.4;
+        line-height: 1.4; white-space: normal;
     }
     .stat-metric { font-size: 1.5em; font-weight: bold; color: #2563eb; }
+    
+    /* Force Table Full Height */
+    [data-testid="stDataFrame"] > div { height: auto !important; max-height: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 🧱 KERNEL SMAXIA (Smart Triggers & Operational FRT)
+# 🧱 KERNEL SMAXIA
 # ==============================================================================
 
 KERNEL_MAPPING = {
@@ -53,9 +57,7 @@ SMAXIA_KERNEL = {
     # --- SUITES NUMÉRIQUES ---
     "FRT_SUITE_01": {
         "QC": "COMMENT Démontrer qu'une suite est géométrique ?",
-        # Déclencheur Unique & Univoque
         "Triggers": ["Relation de récurrence multiplicative $u_{n+1} = f(u_n)$", "Demande explicite sur la nature de la suite définie par un produit"],
-        # FRT OPERATIONNELLE
         "FRT_Redaction": """
         **🔔 Quand utiliser cette méthode ?**
         Lorsque l'énoncé demande la nature de la suite et que l'expression lie $u_{n+1}$ à $u_n$ par un facteur multiplicatif.
@@ -79,9 +81,7 @@ SMAXIA_KERNEL = {
 
     "FRT_SUITE_02": {
         "QC": "COMMENT Lever une indétermination sur une limite ?",
-        # Déclencheur SMAXIA Validé (Unique)
         "Triggers": ["Présence simultanée de plusieurs termes en $n$ de même ordre (polynômes ou fractions) créant un conflit à l'infini"],
-        # FRT OPERATIONNELLE
         "FRT_Redaction": """
         **🔔 Quand utiliser cette méthode ?**
         L'expression de $u_n$ contient plusieurs termes en $n$ qui "s'affrontent" (forme $\\infty - \\infty$ ou $\\frac{\\infty}{\\infty}$).
@@ -106,7 +106,6 @@ SMAXIA_KERNEL = {
 
     "FRT_SUITE_03": {
         "QC": "COMMENT Démontrer par récurrence ?",
-        # Déclencheur Unique
         "Triggers": ["Propriété $P(n)$ dépendant de $n$ à valider pour tout entier naturel (souvent inégalité ou divisibilité)"],
         "FRT_Redaction": """
         **🔔 Quand utiliser cette méthode ?**
@@ -203,32 +202,37 @@ SMAXIA_KERNEL = {
         "Weights": [0.1, 0.2, 0.2, 0.1], "Delta": 0.9
     },
 
-    # --- GEOMETRIE & PROBA (Kernel Simplifié pour l'exemple) ---
+    # --- GEOMETRIE & PROBA ---
     "FRT_GEO_01": {
         "QC": "COMMENT Démontrer l'orthogonalité Droite/Plan ?",
         "Triggers": ["Montrer que la droite (d) est orthogonale au plan (P)"],
-        "FRT_Redaction": "**Méthode :** Montrer que le vecteur directeur de la droite est orthogonal à deux vecteurs directeurs non colinéaires du plan.",
+        "FRT_Redaction": """
+        **Méthode :**
+        1. Extraire vecteur $\\vec{u}$ de la droite.
+        2. Extraire deux vecteurs non colinéaires $\\vec{v_1}, \\vec{v_2}$ du plan.
+        3. Montrer que $\\vec{u}.\\vec{v_1}=0$ et $\\vec{u}.\\vec{v_2}=0$.
+        """,
         "ARI": ["Vecteur u", "Base Plan", "Produits Scalaires"],
         "Weights": [0.1, 0.1, 0.4, 0.2], "Delta": 1.3
     },
     "FRT_GEO_02": {
         "QC": "COMMENT Déterminer une représentation paramétrique ?",
         "Triggers": ["Donner une représentation paramétrique de la droite passant par A et de vecteur u"],
-        "FRT_Redaction": "**Méthode :** Utiliser la condition de colinéarité $\\vec{AM} = t\\vec{u}$ pour écrire le système.",
+        "FRT_Redaction": "**Méthode :** Utiliser la condition $\\vec{AM} = t\\vec{u}$ pour écrire le système.",
         "ARI": ["Point A", "Vecteur u", "Système"],
         "Weights": [0.2, 0.2, 0.4], "Delta": 1.0
     },
     "FRT_PROBA_01": {
         "QC": "COMMENT Calculer une probabilité totale ?",
         "Triggers": ["Calculer P(B) dans une expérience à plusieurs étapes (Arbre)"],
-        "FRT_Redaction": "**Méthode :** Identifier les chemins de l'arbre menant à l'événement et sommer leurs probabilités.",
+        "FRT_Redaction": "**Méthode :** Identifier les chemins de l'arbre et sommer les probabilités.",
         "ARI": ["Arbre", "Chemins", "Somme"],
         "Weights": [0.1, 0.3, 0.2, 0.2], "Delta": 1.1
     },
     "FRT_PROBA_02": {
         "QC": "COMMENT Utiliser la Loi Binomiale ?",
         "Triggers": ["Calculer la probabilité d'obtenir exactement k succès"],
-        "FRT_Redaction": "**Méthode :** Justifier le schéma de Bernoulli, donner les paramètres (n,p) et appliquer la formule.",
+        "FRT_Redaction": "**Méthode :** Justifier Bernoulli, donner (n,p), appliquer formule.",
         "ARI": ["Justification", "Paramètres", "Formule"],
         "Weights": [0.3, 0.1, 0.3, 0.1], "Delta": 1.2
     }
@@ -236,7 +240,7 @@ SMAXIA_KERNEL = {
 
 # --- GÉNÉRATEUR ---
 QI_TEMPLATES = {
-    "FRT_SUITE_01": ["Montrer que la suite (Un) est géométrique.", "Démontrer que Vn est une suite géométrique.", "Justifier la nature géométrique de la suite."],
+    "FRT_SUITE_01": ["Montrer que (Un) est géométrique.", "Démontrer que Vn est une suite géométrique.", "Justifier la nature géométrique de la suite."],
     "FRT_SUITE_02": ["Déterminer la limite de la suite Un.", "Calculer la limite quand n tend vers l'infini (forme indéterminée).", "Étudier la convergence de Un = (n^2+1)/(n-3)."],
     "FRT_SUITE_03": ["Démontrer par récurrence que Un > 0.", "Montrer par récurrence la propriété P(n).", "Prouver par récurrence que Un < 5."],
     "FRT_FCT_01": ["Étudier les variations de la fonction f.", "Dresser le tableau de variations complet.", "Quel est le sens de variation de f ?"],
@@ -291,6 +295,7 @@ def ingest_and_process(urls, n_per_url, selected_chapters):
             frts_in_doc = random.sample(active_frts, k=min(nb_exos, len(active_frts)))
             
             qi_list_in_file = []
+            
             for frt_id in frts_in_doc:
                 qi_txt = generate_smart_qi(frt_id)
                 atoms_db.append({
@@ -349,7 +354,7 @@ def compute_engine_metrics(df_atoms):
     return pd.DataFrame(qcs).sort_values(by=["Chapitre", "Score_F2"], ascending=[True, False])
 
 # ==============================================================================
-# 🖥️ INTERFACE V10.6
+# 🖥️ INTERFACE V10.7
 # ==============================================================================
 
 with st.sidebar:
@@ -357,6 +362,7 @@ with st.sidebar:
     matiere = st.selectbox("Matière", ["MATHS"])
     all_chaps = list(set(KERNEL_MAPPING.values()))
     selected_chaps = st.multiselect("Chapitres", all_chaps, default=all_chaps)
+    st.info(f"ℹ️ Kernel Actuel : {len(SMAXIA_KERNEL)} FRT définies.")
 
 # TABS
 tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine (Prod)", "✅ Onglet 2 : Audit (Validation Booléenne)"])
@@ -421,24 +427,19 @@ with tab_usine:
                         
                         c1, c2, c3, c4 = st.columns(4)
                         
-                        # 1. TRIGGERS INTELLIGENTS
                         with c1:
                             with st.expander("⚡ Déclencheurs"):
                                 for t in row['Triggers']: 
                                     st.markdown(f"<div class='trigger-badge'>{t}</div>", unsafe_allow_html=True)
                         
-                        # 2. ARI (INTERNE)
                         with c2:
                             with st.expander(f"⚙️ ARI_{row['QC_ID_Simple']}"):
                                 for s in row['ARI']: st.markdown(f"- {s}")
 
-                        # 3. FRT (OPERATIONNELLE)
                         with c3:
                             with st.expander(f"📝 FRT_{row['QC_ID_Simple']}"):
-                                # Affichage Markdown riche
                                 st.markdown(f"<div class='frt-box'>{row['FRT_Redaction']}</div>", unsafe_allow_html=True)
 
-                        # 4. PREUVE QI (FULL WIDTH)
                         with c4:
                             with st.expander(f"📄 Qi associées ({row['n_q']})"):
                                 st.dataframe(
