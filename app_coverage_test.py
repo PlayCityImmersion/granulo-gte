@@ -6,10 +6,10 @@ import time
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V10.5")
-st.title("🛡️ SMAXIA - Console V10.5 (Finale)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V10.6")
+st.title("🛡️ SMAXIA - Console V10.6 (Operational Kernel)")
 
-# Styles CSS
+# Styles CSS (Optimisé pour la lecture FRT)
 st.markdown("""
 <style>
     .qc-header-row { 
@@ -24,14 +24,22 @@ st.markdown("""
         background-color: #e5e7eb; padding: 6px 12px; border-radius: 4px; border: 1px solid #9ca3af;
         white-space: nowrap;
     }
-    .frt-step { margin-bottom: 8px; font-family: sans-serif; line-height: 1.5; }
-    .trigger-badge { background-color: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 12px; font-size: 0.9em; font-weight: bold; border: 1px solid #fca5a5; margin-right: 5px; display: inline-block; margin-bottom: 4px;}
+    /* Styles pour la FRT Opérationnelle */
+    .frt-box { background-color: #ffffff; border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; }
+    .frt-section { margin-bottom: 12px; }
+    .frt-title { font-weight: bold; color: #1e40af; font-size: 1em; margin-bottom: 4px; }
+    .trigger-badge { 
+        background-color: #fef3c7; color: #92400e; padding: 4px 10px; 
+        border-radius: 6px; font-size: 0.95em; font-weight: 600; 
+        border: 1px solid #fcd34d; display: block; margin-bottom: 4px;
+        line-height: 1.4;
+    }
     .stat-metric { font-size: 1.5em; font-weight: bold; color: #2563eb; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 🧱 KERNEL SMAXIA
+# 🧱 KERNEL SMAXIA (Smart Triggers & Operational FRT)
 # ==============================================================================
 
 KERNEL_MAPPING = {
@@ -42,140 +50,202 @@ KERNEL_MAPPING = {
 }
 
 SMAXIA_KERNEL = {
+    # --- SUITES NUMÉRIQUES ---
     "FRT_SUITE_01": {
         "QC": "COMMENT Démontrer qu'une suite est géométrique ?",
-        "Triggers": ["montrer que la suite est géométrique", "nature de la suite", "raison de la suite"],
-        "FRT_Redaction": [
-            "1. Pour tout entier naturel $n$, on exprime $u_{n+1}$ en fonction de $n$.",
-            "2. On calcule le rapport $\\frac{u_{n+1}}{u_n}$.",
-            "3. On simplifie l'expression jusqu'à obtenir une constante réelle $q$ (indépendante de $n$).",
-            "4. **Conclusion :** La suite $(u_n)$ est géométrique de raison $q$."
-        ],
-        "ARI": ["Calcul u(n+1)", "Ratio u(n+1)/u(n)", "Simplification", "Identification q"],
+        # Déclencheur Unique & Univoque
+        "Triggers": ["Relation de récurrence multiplicative $u_{n+1} = f(u_n)$", "Demande explicite sur la nature de la suite définie par un produit"],
+        # FRT OPERATIONNELLE
+        "FRT_Redaction": """
+        **🔔 Quand utiliser cette méthode ?**
+        Lorsque l'énoncé demande la nature de la suite et que l'expression lie $u_{n+1}$ à $u_n$ par un facteur multiplicatif.
+
+        **✅ Méthode Standard :**
+        1.  **Exprimer** le rapport $\\frac{u_{n+1}}{u_n}$ pour tout entier $n$.
+        2.  **Remplacer** $u_{n+1}$ par sa définition en fonction de $u_n$.
+        3.  **Simplifier** l'expression algébrique jusqu'à éliminer tous les termes en $u_n$ ou $n$.
+        4.  **Identifier** le résultat obtenu comme une constante réelle $q$.
+
+        **⚠️ Pièges à éviter :**
+        * Ne pas vérifier que $u_n \\neq 0$ avant de diviser.
+        * Confondre avec une suite arithmétique (différence constante).
+
+        **✍️ Modèle de Rédaction Examen :**
+        > "Pour tout entier naturel $n$, on calcule le rapport $\\frac{u_{n+1}}{u_n} = \\dots = q$. Ce rapport étant constant, la suite $(u_n)$ est géométrique de raison $q$."
+        """,
+        "ARI": ["Calcul Ratio", "Simplification", "Identification Constante"],
         "Weights": [0.2, 0.3, 0.2, 0.1], "Delta": 1.2
     },
+
     "FRT_SUITE_02": {
-        "QC": "COMMENT Lever une indétermination sur une limite de suite ?",
-        "Triggers": ["déterminer la limite", "étudier la convergence", "forme indéterminée"],
-        "FRT_Redaction": [
-            "1. On identifie une Forme Indéterminée (FI) type $\\infty - \\infty$ ou $\\frac{\\infty}{\\infty}$.",
-            "2. On factorise l'expression par le terme prépondérant (plus haut degré ou exponentielle).",
-            "3. On utilise les limites usuelles (ex: $\\lim \\frac{1}{n} = 0$).",
-            "4. Par opération sur les limites, on conclut sur la limite de $(u_n)$."
-        ],
-        "ARI": ["Identifier FI", "Factorisation forcée", "Limites usuelles", "Opérations"],
+        "QC": "COMMENT Lever une indétermination sur une limite ?",
+        # Déclencheur SMAXIA Validé (Unique)
+        "Triggers": ["Présence simultanée de plusieurs termes en $n$ de même ordre (polynômes ou fractions) créant un conflit à l'infini"],
+        # FRT OPERATIONNELLE
+        "FRT_Redaction": """
+        **🔔 Quand utiliser cette méthode ?**
+        L'expression de $u_n$ contient plusieurs termes en $n$ qui "s'affrontent" (forme $\\infty - \\infty$ ou $\\frac{\\infty}{\\infty}$).
+
+        **✅ Méthode Standard :**
+        1.  **Identifier** le terme dominant (plus grande puissance de $n$ ou exponentielle).
+        2.  **Factoriser** toute l'expression par ce terme dominant (force brute).
+            * $u_n = n^k \\times (\\dots)$
+        3.  **Simplifier** les termes intérieurs en utilisant les limites usuelles (ex: $1/n \\to 0$).
+        4.  **Conclure** par produit ou somme de limites.
+
+        **⚠️ Pièges à éviter :**
+        * Utiliser la règle des signes sans factoriser.
+        * Oublier de justifier les limites usuelles ($1/n$).
+
+        **✍️ Modèle de Rédaction Examen :**
+        > "On factorise par le terme de plus haut degré : $u_n = n^k(\\dots)$. Or $\\lim \\frac{1}{n} = 0$, donc par produit, $\\lim u_n = \\dots$"
+        """,
+        "ARI": ["Identifier Dominant", "Factorisation Forcée", "Limites Usuelles"],
         "Weights": [0.2, 0.3, 0.3, 0.2], "Delta": 1.1
     },
+
     "FRT_SUITE_03": {
-        "QC": "COMMENT Démontrer une propriété par récurrence ?",
-        "Triggers": ["démontrer par récurrence", "montrer que pour tout n", "hérédité"],
-        "FRT_Redaction": [
-            "1. **Initialisation :** On vérifie que la propriété $P(n)$ est vraie au rang $n_0$.",
-            "2. **Hérédité :** On suppose que $P(k)$ est vraie pour un entier $k$ fixé. On veut montrer que $P(k+1)$ est vraie.",
-            "3. On utilise l'hypothèse de récurrence dans le calcul de l'étape $k+1$.",
-            "4. **Conclusion :** La propriété étant initialisée et héréditaire, elle est vraie pour tout $n$."
-        ],
-        "ARI": ["Initialisation", "Hypothèse HR", "Preuve au rang k+1", "Conclusion"],
+        "QC": "COMMENT Démontrer par récurrence ?",
+        # Déclencheur Unique
+        "Triggers": ["Propriété $P(n)$ dépendant de $n$ à valider pour tout entier naturel (souvent inégalité ou divisibilité)"],
+        "FRT_Redaction": """
+        **🔔 Quand utiliser cette méthode ?**
+        Dès que l'énoncé contient "pour tout entier naturel $n$" et une propriété qui se propage (inégalité, suite définie par récurrence).
+
+        **✅ Méthode Standard :**
+        1.  **Initialisation :** Vérifier que la propriété est vraie au premier rang (souvent $n=0$ ou $n=1$).
+        2.  **Hérédité :**
+            * Supposer la propriété vraie au rang $k$ (Hypothèse de Récurrence - HR).
+            * Démontrer qu'elle est vraie au rang $k+1$ en utilisant **explicitement** l'HR.
+        3.  **Conclusion :** Rappeler le principe de récurrence.
+
+        **⚠️ Pièges à éviter :**
+        * Oublier l'initialisation.
+        * Ne pas utiliser l'hypothèse de récurrence dans l'hérédité (signe que la démonstration est fausse).
+
+        **✍️ Modèle de Rédaction Examen :**
+        > "Initialisation : pour $n=0$... Hérédité : Supposons $P(k)$ vraie. Montrons $P(k+1)$. On a... (utilisation HR)... Donc $P(k+1)$ est vraie. Conclusion : Par récurrence, la propriété est vraie pour tout $n$."
+        """,
+        "ARI": ["Initialisation", "Hérédité", "Conclusion"],
         "Weights": [0.1, 0.2, 0.6, 0.1], "Delta": 1.5
     },
+
+    # --- FONCTIONS ---
     "FRT_FCT_01": {
         "QC": "COMMENT Étudier les variations d'une fonction ?",
-        "Triggers": ["dresser le tableau de variations", "étudier les variations", "sens de variation"],
-        "FRT_Redaction": [
-            "1. On justifie la dérivabilité de $f$ sur $I$.",
-            "2. On calcule la fonction dérivée $f'(x)$.",
-            "3. On étudie le signe de $f'(x)$ (recherche des racines, tableau de signes).",
-            "4. On en déduit les variations de $f$ : $f$ est croissante là où $f' > 0$.",
-            "5. On dresse le tableau complet avec les limites aux bornes."
-        ],
-        "ARI": ["Domaine dérivabilité", "Calcul f'", "Signe f'", "Tableau complet"],
+        "Triggers": ["Demande explicite du sens de variation", "Nécessité de dresser le tableau de variations"],
+        "FRT_Redaction": """
+        **🔔 Quand utiliser cette méthode ?**
+        Systématiquement quand on veut connaître la croissance/décroissance d'une fonction dérivable.
+
+        **✅ Méthode Standard :**
+        1.  **Justifier** la dérivabilité sur l'intervalle.
+        2.  **Calculer** la dérivée $f'(x)$.
+        3.  **Étudier le signe** de $f'(x)$ (factorisation, racines, tableau de signes).
+        4.  **Conclure :**
+            * $f'(x) > 0 \\Rightarrow f$ croissante.
+            * $f'(x) < 0 \\Rightarrow f$ décroissante.
+
+        **⚠️ Pièges à éviter :**
+        * Confondre le signe de $f(x)$ et le signe de $f'(x)$.
+        * Oublier les valeurs interdites dans le tableau.
+
+        **✍️ Modèle de Rédaction Examen :**
+        > "$f$ est dérivable sur $I$. Pour tout $x$, $f'(x) = \\dots$. Comme $f'(x) > 0$ sur cet intervalle, la fonction $f$ est strictement croissante."
+        """,
+        "ARI": ["Dérivabilité", "Calcul f'", "Signe f'", "Conclusion"],
         "Weights": [0.3, 0.3, 0.2, 0.1], "Delta": 1.3
     },
     "FRT_FCT_02": {
-        "QC": "COMMENT Appliquer le TVI pour une solution unique ?",
-        "Triggers": ["équation f(x)=k", "admet une unique solution", "théorème des valeurs intermédiaires"],
-        "FRT_Redaction": [
-            "1. On vérifie que $f$ est **continue** sur l'intervalle $[a,b]$.",
-            "2. On vérifie que $f$ est **strictement monotone** sur cet intervalle.",
-            "3. On calcule les images $f(a)$ et $f(b)$ et on vérifie que $k$ est compris entre les deux.",
-            "4. **Conclusion :** D'après le corollaire du TVI, l'équation $f(x)=k$ admet une unique solution $\\alpha$."
-        ],
-        "ARI": ["Continuité", "Monotonie stricte", "Images bornes", "Invocation TVI"],
+        "QC": "COMMENT Appliquer le TVI (Solution unique) ?",
+        "Triggers": ["Montrer que l'équation $f(x)=k$ admet une unique solution", "Encadrement d'une solution alpha"],
+        "FRT_Redaction": """
+        **🔔 Quand utiliser cette méthode ?**
+        Pour prouver l'existence et l'unicité d'une solution sans pouvoir la calculer explicitement.
+
+        **✅ Méthode Standard :**
+        1.  Vérifier la **Continuité** de $f$ sur l'intervalle.
+        2.  Vérifier la **Stricte Monotonie** (strictement croissante ou décroissante).
+        3.  Calculer les **Images aux bornes** (ou limites) pour montrer que la valeur cible $k$ est atteinte.
+        4.  Invoquer le **Corollaire du TVI**.
+
+        **⚠️ Pièges à éviter :**
+        * Oublier la condition "stricte monotonie" (nécessaire pour l'unicité).
+        * Oublier la condition "continuité" (nécessaire pour l'existence).
+
+        **✍️ Modèle de Rédaction Examen :**
+        > "La fonction est continue et strictement monotone sur $I$. Or $k$ est compris entre les images des bornes. D'après le corollaire du TVI, l'équation admet une unique solution $\\alpha$."
+        """,
+        "ARI": ["Continuité", "Monotonie", "Images Bornes", "Invocation"],
         "Weights": [0.1, 0.2, 0.2, 0.4], "Delta": 1.4
     },
     "FRT_FCT_03": {
         "QC": "COMMENT Déterminer l'équation d'une tangente ?",
-        "Triggers": ["équation de la tangente", "tangente au point d'abscisse", "équation réduite"],
-        "FRT_Redaction": [
-            "1. On rappelle la formule de la tangente en $a$ : $y = f'(a)(x-a) + f(a)$.",
-            "2. On calcule l'image $f(a)$.",
-            "3. On calcule le nombre dérivé $f'(a)$.",
-            "4. On remplace dans la formule et on réduit l'expression sous la forme $y = mx + p$."
-        ],
-        "ARI": ["Rappel formule", "Calcul f(a)", "Calcul f'(a)", "Substitution"],
+        "Triggers": ["Déterminer l'équation de la tangente au point d'abscisse $a$", "Équation réduite de la tangente"],
+        "FRT_Redaction": """
+        **🔔 Quand utiliser cette méthode ?**
+        Dès que le mot "tangente" apparaît avec un point de contact donné.
+
+        **✅ Méthode Standard :**
+        1.  **Identifier** l'abscisse $a$ du point de contact.
+        2.  **Calculer** l'image $f(a)$.
+        3.  **Calculer** le nombre dérivé $f'(a)$.
+        4.  **Appliquer** la formule : $y = f'(a)(x-a) + f(a)$.
+
+        **⚠️ Pièges à éviter :**
+        * Confondre $f(a)$ et $f'(a)$.
+        * Laisser l'expression non réduite (il faut la forme $y=mx+p$).
+
+        **✍️ Modèle de Rédaction Examen :**
+        > "L'équation de la tangente $T$ au point d'abscisse $a$ est donnée par $y = f'(a)(x-a) + f(a)$. On a $f(a)=...$ et $f'(a)=...$, d'où $y = ...$"
+        """,
+        "ARI": ["Formule", "Calcul f(a)", "Calcul f'(a)", "Substitution"],
         "Weights": [0.1, 0.2, 0.2, 0.1], "Delta": 0.9
     },
+
+    # --- GEOMETRIE & PROBA (Kernel Simplifié pour l'exemple) ---
     "FRT_GEO_01": {
-        "QC": "COMMENT Démontrer qu'une droite est orthogonale à un plan ?",
-        "Triggers": ["droite orthogonale au plan", "vecteur normal au plan", "perpendiculaire au plan"],
-        "FRT_Redaction": [
-            "1. On extrait un vecteur directeur $\\vec{u}$ de la droite.",
-            "2. On identifie deux vecteurs directeurs non colinéaires $\\vec{v_1}$ et $\\vec{v_2}$ du plan.",
-            "3. On montre que le produit scalaire $\\vec{u} \\cdot \\vec{v_1} = 0$ et $\\vec{u} \\cdot \\vec{v_2} = 0$.",
-            "4. **Conclusion :** La droite est orthogonale à deux droites sécantes du plan, donc elle est orthogonale au plan."
-        ],
-        "ARI": ["Vecteur u", "Base du plan", "Double produit scalaire", "Théorème"],
+        "QC": "COMMENT Démontrer l'orthogonalité Droite/Plan ?",
+        "Triggers": ["Montrer que la droite (d) est orthogonale au plan (P)"],
+        "FRT_Redaction": "**Méthode :** Montrer que le vecteur directeur de la droite est orthogonal à deux vecteurs directeurs non colinéaires du plan.",
+        "ARI": ["Vecteur u", "Base Plan", "Produits Scalaires"],
         "Weights": [0.1, 0.1, 0.4, 0.2], "Delta": 1.3
     },
     "FRT_GEO_02": {
         "QC": "COMMENT Déterminer une représentation paramétrique ?",
-        "Triggers": ["représentation paramétrique", "système paramétrique", "droite passant par"],
-        "FRT_Redaction": [
-            "1. On identifie un point $A(x_A; y_A; z_A)$ appartenant à la droite.",
-            "2. On identifie un vecteur directeur $\\vec{u}(a; b; c)$.",
-            "3. On écrit le système pour tout paramètre $t \\in \\mathbb{R}$ :",
-            "   $\\begin{cases} x = x_A + at \\\\ y = y_A + bt \\\\ z = z_A + ct \\end{cases}$"
-        ],
-        "ARI": ["Point A", "Vecteur u", "Écriture système"],
+        "Triggers": ["Donner une représentation paramétrique de la droite passant par A et de vecteur u"],
+        "FRT_Redaction": "**Méthode :** Utiliser la condition de colinéarité $\\vec{AM} = t\\vec{u}$ pour écrire le système.",
+        "ARI": ["Point A", "Vecteur u", "Système"],
         "Weights": [0.2, 0.2, 0.4], "Delta": 1.0
     },
     "FRT_PROBA_01": {
-        "QC": "COMMENT Calculer une probabilité totale (Arbre) ?",
-        "Triggers": ["probabilité totale", "arbre pondéré", "probabilité de l'événement"],
-        "FRT_Redaction": [
-            "1. On construit un arbre pondéré décrivant l'expérience.",
-            "2. On repère les chemins qui réalisent l'événement $E$.",
-            "3. On cite la **Formule des Probabilités Totales**.",
-            "4. On somme les probabilités des intersections (produits des branches) : $P(E) = P(A \\cap E) + P(\\bar{A} \\cap E)$."
-        ],
-        "ARI": ["Modélisation Arbre", "Chemins", "Invocation Formule", "Calcul"],
+        "QC": "COMMENT Calculer une probabilité totale ?",
+        "Triggers": ["Calculer P(B) dans une expérience à plusieurs étapes (Arbre)"],
+        "FRT_Redaction": "**Méthode :** Identifier les chemins de l'arbre menant à l'événement et sommer leurs probabilités.",
+        "ARI": ["Arbre", "Chemins", "Somme"],
         "Weights": [0.1, 0.3, 0.2, 0.2], "Delta": 1.1
     },
     "FRT_PROBA_02": {
-        "QC": "COMMENT Calculer une probabilité (Loi Binomiale) ?",
-        "Triggers": ["loi binomiale", "succès exactement", "schéma de bernoulli"],
-        "FRT_Redaction": [
-            "1. On justifie qu'on répète $n$ fois une épreuve de Bernoulli de manière identique et indépendante.",
-            "2. On précise les paramètres : $X$ suit la loi $\\mathcal{B}(n, p)$.",
-            "3. On applique la formule : $P(X=k) = \\binom{n}{k} p^k (1-p)^{n-k}$.",
-            "4. On effectue le calcul numérique."
-        ],
-        "ARI": ["Justification Loi", "Paramètres n,p", "Formule", "Calcul"],
+        "QC": "COMMENT Utiliser la Loi Binomiale ?",
+        "Triggers": ["Calculer la probabilité d'obtenir exactement k succès"],
+        "FRT_Redaction": "**Méthode :** Justifier le schéma de Bernoulli, donner les paramètres (n,p) et appliquer la formule.",
+        "ARI": ["Justification", "Paramètres", "Formule"],
         "Weights": [0.3, 0.1, 0.3, 0.1], "Delta": 1.2
     }
 }
 
+# --- GÉNÉRATEUR ---
 QI_TEMPLATES = {
-    "FRT_SUITE_01": ["Montrer que (Un) est géométrique.", "Démontrer que Vn est une suite géométrique.", "Justifier la nature géométrique de la suite."],
-    "FRT_SUITE_02": ["Déterminer la limite de la suite Un.", "Étudier la convergence de la suite.", "Calculer la limite quand n tend vers l'infini."],
+    "FRT_SUITE_01": ["Montrer que la suite (Un) est géométrique.", "Démontrer que Vn est une suite géométrique.", "Justifier la nature géométrique de la suite."],
+    "FRT_SUITE_02": ["Déterminer la limite de la suite Un.", "Calculer la limite quand n tend vers l'infini (forme indéterminée).", "Étudier la convergence de Un = (n^2+1)/(n-3)."],
     "FRT_SUITE_03": ["Démontrer par récurrence que Un > 0.", "Montrer par récurrence la propriété P(n).", "Prouver par récurrence que Un < 5."],
     "FRT_FCT_01": ["Étudier les variations de la fonction f.", "Dresser le tableau de variations complet.", "Quel est le sens de variation de f ?"],
-    "FRT_FCT_02": ["Montrer que l'équation f(x)=0 admet une unique solution.", "Démontrer l'existence d'une solution alpha.", "Prouver que l'équation a une seule solution sur I."],
-    "FRT_FCT_03": ["Déterminer l'équation de la tangente T au point A.", "Donner l'équation réduite de la tangente.", "Quelle est la tangente à Cf en 0 ?"],
-    "FRT_GEO_01": ["Démontrer que la droite (d) est orthogonale au plan (P).", "Prouver que (d) est perpendiculaire au plan.", "Montrer que le vecteur n est normal au plan."],
-    "FRT_GEO_02": ["Déterminer une représentation paramétrique de (D).", "Donner un système d'équations paramétriques.", "Quelle est la représentation de la droite ?"],
-    "FRT_PROBA_01": ["Calculer la probabilité de l'événement B.", "En utilisant l'arbre, calculer P(E).", "Quelle est la probabilité totale de A ?"],
-    "FRT_PROBA_02": ["Calculer la probabilité d'obtenir exactement 3 succès.", "Quelle est la probabilité que X soit égal à 2 ?", "Calculer P(X=k) avec la loi binomiale."]
+    "FRT_FCT_02": ["Montrer que l'équation f(x)=0 admet une unique solution.", "Démontrer l'existence d'une solution alpha sur [0;1]."],
+    "FRT_FCT_03": ["Déterminer l'équation de la tangente T au point A.", "Donner l'équation réduite de la tangente en 0."],
+    "FRT_GEO_01": ["Démontrer que la droite (d) est orthogonale au plan (P)."],
+    "FRT_GEO_02": ["Déterminer une représentation paramétrique de (D)."],
+    "FRT_PROBA_01": ["Calculer la probabilité de l'événement B (Total)."],
+    "FRT_PROBA_02": ["Calculer la probabilité d'obtenir exactement 3 succès."]
 }
 
 def generate_smart_qi(frt_id):
@@ -221,7 +291,6 @@ def ingest_and_process(urls, n_per_url, selected_chapters):
             frts_in_doc = random.sample(active_frts, k=min(nb_exos, len(active_frts)))
             
             qi_list_in_file = []
-            
             for frt_id in frts_in_doc:
                 qi_txt = generate_smart_qi(frt_id)
                 atoms_db.append({
@@ -280,7 +349,7 @@ def compute_engine_metrics(df_atoms):
     return pd.DataFrame(qcs).sort_values(by=["Chapitre", "Score_F2"], ascending=[True, False])
 
 # ==============================================================================
-# 🖥️ INTERFACE V10.5
+# 🖥️ INTERFACE V10.6
 # ==============================================================================
 
 with st.sidebar:
@@ -334,7 +403,7 @@ with tab_usine:
                     st.markdown(f"#### 📘 {chap} : {len(df_view)} QC")
                     
                     for idx, row in df_view.iterrows():
-                        # LIGNE 1 : HEADER
+                        # HEADER
                         header_html = f"""
                         <div class="qc-header-row">
                             <span class="qc-id-tag">[{row['QC_ID_Simple']}]</span>
@@ -352,28 +421,30 @@ with tab_usine:
                         
                         c1, c2, c3, c4 = st.columns(4)
                         
-                        # 1. TRIGGERS
+                        # 1. TRIGGERS INTELLIGENTS
                         with c1:
                             with st.expander("⚡ Déclencheurs"):
-                                for t in row['Triggers']: st.markdown(f"<div class='trigger-badge'>{t}</div>", unsafe_allow_html=True)
+                                for t in row['Triggers']: 
+                                    st.markdown(f"<div class='trigger-badge'>{t}</div>", unsafe_allow_html=True)
                         
-                        # 2. ARI
+                        # 2. ARI (INTERNE)
                         with c2:
                             with st.expander(f"⚙️ ARI_{row['QC_ID_Simple']}"):
                                 for s in row['ARI']: st.markdown(f"- {s}")
 
-                        # 3. FRT
+                        # 3. FRT (OPERATIONNELLE)
                         with c3:
                             with st.expander(f"📝 FRT_{row['QC_ID_Simple']}"):
-                                for line in row['FRT_Redaction']: st.markdown(f"<div class='frt-step'>{line}</div>", unsafe_allow_html=True)
+                                # Affichage Markdown riche
+                                st.markdown(f"<div class='frt-box'>{row['FRT_Redaction']}</div>", unsafe_allow_html=True)
 
-                        # 4. PREUVE QI (Correction : Full Width)
+                        # 4. PREUVE QI (FULL WIDTH)
                         with c4:
                             with st.expander(f"📄 Qi associées ({row['n_q']})"):
                                 st.dataframe(
                                     pd.DataFrame(row['Evidence']), 
                                     hide_index=True, 
-                                    use_container_width=True, # CORRECTION
+                                    use_container_width=True, 
                                     column_config={"Qi": st.column_config.TextColumn("Questions Élèves", width="large")}
                                 )
                         
@@ -381,7 +452,7 @@ with tab_usine:
             else:
                 st.warning("Aucune QC.")
 
-# --- TAB 2 : AUDIT MAPPING ---
+# --- TAB 2 : AUDIT ---
 with tab_audit:
     st.subheader("Validation Booléenne (Tableau de Mapping Unifié)")
     
