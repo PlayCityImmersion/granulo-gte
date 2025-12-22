@@ -6,427 +6,409 @@ import time
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V13 (Discovery)")
-st.title("🛡️ SMAXIA - Console V13 (True Discovery Engine)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Golden Master V14")
+st.title("🛡️ SMAXIA - Environnement de Test V14 (Golden Master)")
 
-# Styles CSS (Full Render + Alignement)
+# ==============================================================================
+# 🎨 STYLES CSS (FIGÉS)
+# ==============================================================================
 st.markdown("""
 <style>
-    /* En-tête QC */
-    .qc-header-row { 
-        display: flex; align-items: center; background-color: #f8f9fa; 
-        padding: 12px; border-radius: 5px; border-left: 5px solid #2563eb;
-        font-family: monospace; margin-bottom: 5px; flex-wrap: wrap;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    /* Carte QC Principale */
+    .qc-card {
+        border-left: 5px solid #2563eb; background-color: #f8f9fa;
+        padding: 10px; margin-bottom: 5px; border-radius: 4px;
+        display: flex; flex-wrap: wrap; align-items: center;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
-    .qc-id-tag { font-weight: bold; color: #d97706; margin-right: 15px; font-size: 1.2em; min-width: 90px;}
-    .qc-title { flex-grow: 1; font-weight: 600; color: #1f2937; font-size: 1.1em; margin-right: 15px; font-family: sans-serif;}
-    .qc-vars { 
-        font-size: 0.85em; color: #111827; font-weight: bold; font-family: 'Courier New';
-        background-color: #e5e7eb; padding: 4px 8px; border-radius: 4px; border: 1px solid #9ca3af;
-        white-space: nowrap; margin-left: 5px;
-    }
-    
-    /* FRT Box */
-    .frt-box { 
-        background-color: #ffffff; border: 1px solid #e5e7eb; padding: 20px; border-radius: 8px; 
-        white-space: pre-wrap; word-wrap: break-word; font-family: sans-serif; line-height: 1.6;
+    .qc-id { font-weight: bold; color: #d97706; font-size: 1.1em; margin-right: 10px; min-width: 80px;}
+    .qc-title { flex-grow: 1; font-weight: 600; color: #1f2937; font-size: 1.1em; font-family: sans-serif; }
+    .qc-stats { 
+        font-family: 'Courier New'; font-size: 0.85em; font-weight: bold; color: #374151;
+        background: #e5e7eb; padding: 4px 8px; border-radius: 4px; margin-left: 10px; white-space: nowrap;
     }
     
-    /* Table HTML */
-    .custom-table { width: 100%; border-collapse: collapse; font-size: 0.95em; font-family: sans-serif; }
-    .custom-table th { background-color: #f3f4f6; padding: 10px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151;}
-    .custom-table td { padding: 10px; border-bottom: 1px solid #e5e7eb; vertical-align: top; color: #1f2937;}
+    /* Contenu Détails */
+    .frt-box { background: white; border: 1px solid #d1d5db; padding: 15px; border-radius: 6px; font-family: sans-serif; white-space: pre-wrap; line-height: 1.5; }
+    .trigger-badge { background: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; font-weight: 700; border: 1px solid #fca5a5; display: inline-block; margin: 2px; }
+    .ari-step { margin-left: 15px; color: #4b5563; font-family: monospace; }
     
-    .trigger-badge { 
-        background-color: #fef3c7; color: #92400e; padding: 4px 10px; 
-        border-radius: 6px; font-size: 0.9em; font-weight: 600; 
-        border: 1px solid #fcd34d; display: inline-block; margin: 3px;
-    }
-    .stat-metric { font-size: 2em; font-weight: bold; color: #2563eb; margin-bottom: 10px;}
+    /* Tableaux */
+    .full-table { width: 100%; border-collapse: collapse; font-size: 0.9em; font-family: sans-serif; }
+    .full-table th { background: #f3f4f6; padding: 8px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151; }
+    .full-table td { padding: 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; color: #1f2937; }
+    .full-table tr:hover { background: #f9fafb; }
     
-    /* Scroll vertical pour la liste des sujets */
-    .subject-list-container { max-height: 600px; overflow-y: auto; border: 1px solid #e5e7eb; border-radius: 5px; }
+    /* Métriques Audit */
+    .audit-metric { font-size: 2em; font-weight: 800; color: #059669; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 🌌 UNIVERS MATHÉMATIQUE THÉORIQUE (HIDDEN TRUTH)
-# C'est l'espace des possibles. Le moteur ne le connait pas, il doit le découvrir.
+# 🧠 KERNEL UNIVERSEL (MATHS + PHYSIQUE)
 # ==============================================================================
 
-UNIVERS_MATHS = {
-    # --- SUITES (Fréquent) ---
-    "FRT_SUITE_GEO": {"QC": "COMMENT Démontrer qu'une suite est géométrique ?", "Chap": "SUITES", "Proba": 0.9},
-    "FRT_SUITE_LIM": {"QC": "COMMENT Lever une indétermination (limite) ?", "Chap": "SUITES", "Proba": 0.8},
-    "FRT_SUITE_REC": {"QC": "COMMENT Démontrer par récurrence ?", "Chap": "SUITES", "Proba": 0.8},
-    # --- SUITES (Rare) ---
-    "FRT_SUITE_VAR": {"QC": "COMMENT Étudier le sens de variation (u_n+1 - u_n) ?", "Chap": "SUITES", "Proba": 0.4},
-    "FRT_SUITE_SOM": {"QC": "COMMENT Calculer une somme de termes ?", "Chap": "SUITES", "Proba": 0.3},
-    "FRT_SUITE_SEUIL": {"QC": "COMMENT Déterminer un seuil (Algorithme) ?", "Chap": "SUITES", "Proba": 0.2},
-    "FRT_SUITE_MAJ": {"QC": "COMMENT Montrer qu'une suite est majorée ?", "Chap": "SUITES", "Proba": 0.3},
+# Structure : ID -> {QC, Chapitre, Proba, ARI, FRT, Triggers}
+UNIVERS_SMAXIA = {
+    # --- MATHS ---
+    "FRT_M_SUITE_01": {
+        "Matiere": "MATHS", "Chap": "SUITES NUMÉRIQUES", "Proba": 0.9,
+        "QC": "Comment démontrer qu'une suite est géométrique ?",
+        "Triggers": ["montrer que la suite est géométrique", "nature de la suite", "raison q"],
+        "ARI": ["Calcul u(n+1)", "Ratio u(n+1)/u(n)", "Simplification", "Identification constante"],
+        "FRT": "**Méthode :**\n1. Exprimer $u_{n+1}$ en fonction de $n$.\n2. Calculer le rapport $\\frac{u_{n+1}}{u_n}$.\n3. Simplifier pour trouver une constante $q$."
+    },
+    "FRT_M_SUITE_02": {
+        "Matiere": "MATHS", "Chap": "SUITES NUMÉRIQUES", "Proba": 0.8,
+        "QC": "Comment lever une indétermination (limite) ?",
+        "Triggers": ["déterminer la limite", "forme indéterminée", "convergence"],
+        "ARI": ["Identifier FI", "Factoriser terme dominant", "Limites usuelles"],
+        "FRT": "**Méthode :**\n1. Identifier la F.I.\n2. Factoriser par le terme de plus haut degré.\n3. Conclure par produit."
+    },
+    "FRT_M_FCT_01": {
+        "Matiere": "MATHS", "Chap": "FONCTIONS", "Proba": 0.9,
+        "QC": "Comment étudier les variations d'une fonction ?",
+        "Triggers": ["dresser le tableau de variations", "sens de variation"],
+        "ARI": ["Dérivée f'", "Signe f'", "Tableau"],
+        "FRT": "**Méthode :**\n1. Calculer $f'(x)$.\n2. Étudier le signe de la dérivée.\n3. En déduire les variations (Croissante si +)."
+    },
+    "FRT_M_FCT_02": {
+        "Matiere": "MATHS", "Chap": "FONCTIONS", "Proba": 0.7,
+        "QC": "Comment appliquer le TVI (Solution unique) ?",
+        "Triggers": ["équation f(x)=k", "solution unique alpha"],
+        "ARI": ["Continuité", "Stricte Monotonie", "Bornes", "Corollaire"],
+        "FRT": "**Méthode :**\n1. Vérifier continuité et stricte monotonie.\n2. Calculer les images aux bornes.\n3. Invoquer le corollaire du TVI."
+    },
 
-    # --- FONCTIONS (Fréquent) ---
-    "FRT_FCT_VAR": {"QC": "COMMENT Étudier les variations (Dérivée) ?", "Chap": "FONCTIONS", "Proba": 0.9},
-    "FRT_FCT_TVI": {"QC": "COMMENT Appliquer le TVI (Solution unique) ?", "Chap": "FONCTIONS", "Proba": 0.8},
-    "FRT_FCT_TG": {"QC": "COMMENT Équation de la tangente ?", "Chap": "FONCTIONS", "Proba": 0.7},
-    # --- FONCTIONS (Rare) ---
-    "FRT_FCT_CONV": {"QC": "COMMENT Étudier la convexité (Inflexion) ?", "Chap": "FONCTIONS", "Proba": 0.3},
-    "FRT_FCT_PRIM": {"QC": "COMMENT Déterminer une primitive ?", "Chap": "FONCTIONS", "Proba": 0.4},
-    "FRT_FCT_POS": {"QC": "COMMENT Étudier la position relative (Courbe/Tangente) ?", "Chap": "FONCTIONS", "Proba": 0.2},
-    "FRT_FCT_INT": {"QC": "COMMENT Calculer une intégrale (Aire) ?", "Chap": "FONCTIONS", "Proba": 0.3},
-
-    # --- GEO (Fréquent) ---
-    "FRT_GEO_ORTHO": {"QC": "COMMENT Démontrer l'orthogonalité Droite/Plan ?", "Chap": "GÉOMÉTRIE", "Proba": 0.7},
-    "FRT_GEO_PARA": {"QC": "COMMENT Représentation paramétrique ?", "Chap": "GÉOMÉTRIE", "Proba": 0.6},
-    # --- GEO (Rare) ---
-    "FRT_GEO_CART": {"QC": "COMMENT Équation cartésienne d'un plan ?", "Chap": "GÉOMÉTRIE", "Proba": 0.3},
-    "FRT_GEO_INTER": {"QC": "COMMENT Intersection Droite/Plan ?", "Chap": "GÉOMÉTRIE", "Proba": 0.4},
-    "FRT_GEO_PROJ": {"QC": "COMMENT Coordonnées du projeté orthogonal ?", "Chap": "GÉOMÉTRIE", "Proba": 0.1},
-
-    # --- PROBA (Fréquent) ---
-    "FRT_PROBA_TOT": {"QC": "COMMENT Probabilités totales (Arbre) ?", "Chap": "PROBABILITÉS", "Proba": 0.8},
-    "FRT_PROBA_BIN": {"QC": "COMMENT Loi Binomiale (k succès) ?", "Chap": "PROBABILITÉS", "Proba": 0.7},
-    # --- PROBA (Rare) ---
-    "FRT_PROBA_COND": {"QC": "COMMENT Probabilité conditionnelle P_B(A) ?", "Chap": "PROBABILITÉS", "Proba": 0.5},
-    "FRT_PROBA_IND": {"QC": "COMMENT Démontrer l'indépendance ?", "Chap": "PROBABILITÉS", "Proba": 0.3},
+    # --- PHYSIQUE ---
+    "FRT_P_MECA_01": {
+        "Matiere": "PHYSIQUE", "Chap": "MÉCANIQUE DE NEWTON", "Proba": 0.9,
+        "QC": "Comment déterminer l'accélération (2e Loi) ?",
+        "Triggers": ["déterminer le vecteur accélération", "appliquer la deuxième loi de Newton", "bilan des forces"],
+        "ARI": ["Système/Référentiel", "Bilan Forces", "2e Loi Newton", "Projection"],
+        "FRT": "**Méthode :**\n1. Définir le système et le référentiel galiléen.\n2. Faire le bilan des forces.\n3. Appliquer $\\sum \\vec{F} = m\\vec{a}$.\n4. Projeter sur les axes."
+    },
+    "FRT_P_ONDE_01": {
+        "Matiere": "PHYSIQUE", "Chap": "ONDES MÉCANIQUES", "Proba": 0.8,
+        "QC": "Comment calculer une longueur d'onde ?",
+        "Triggers": ["calculer la longueur d'onde", "célérité et fréquence", "période spatiale"],
+        "ARI": ["Identifier v et f", "Formule lambda", "Calcul"],
+        "FRT": "**Méthode :**\n1. Repérer la célérité $v$ et la fréquence $f$ (ou période $T$).\n2. Appliquer $\\lambda = v/f$ ou $\\lambda = v \\times T$."
+    }
 }
 
-# Modèles de génération de texte (Polymorphisme)
-QI_TEMPLATES = {
-    "FRT_SUITE_GEO": ["Montrer que (Un) est géométrique.", "Justifier la nature de la suite."],
-    "FRT_SUITE_LIM": ["Déterminer la limite.", "Lever l'indétermination.", "Calculer la limite en +inf."],
-    "FRT_SUITE_REC": ["Démontrer par récurrence.", "Prouver la propriété P(n)."],
-    "FRT_SUITE_VAR": ["Étudier les variations.", "La suite est-elle croissante ?"],
-    "FRT_SUITE_SOM": ["Calculer la somme S.", "En déduire la somme des termes."],
-    "FRT_SUITE_SEUIL": ["Déterminer le plus petit entier n.", "Algorithme de seuil."],
-    "FRT_FCT_VAR": ["Dresser le tableau de variations.", "Sens de variation de f."],
-    "FRT_FCT_TVI": ["Montrer que f(x)=0 a une solution unique.", "Appliquer le corollaire TVI."],
-    "FRT_FCT_TG": ["Donner l'équation de la tangente T.", "Tangente au point a."],
-    "FRT_FCT_CONV": ["Étudier la convexité.", "Point d'inflexion ?"],
-    "FRT_GEO_ORTHO": ["Démontrer que (d) est orthogonale à (P)."],
-    "FRT_GEO_PARA": ["Représentation paramétrique de (D)."],
-    "FRT_PROBA_TOT": ["Calculer P(B) (Arbre)."],
-    "FRT_PROBA_BIN": ["Probabilité de k succès.", "Loi Binomiale."]
+# Générateur de phrases élèves (Polymorphisme)
+QI_PATTERNS = {
+    "FRT_M_SUITE_01": ["Montrer que (Un) est géométrique.", "Prouver que la suite est géométrique de raison 2."],
+    "FRT_M_SUITE_02": ["Calculer la limite de Un.", "La suite converge-t-elle ?", "Lever l'indétermination."],
+    "FRT_M_FCT_01": ["Étudier les variations de f.", "Dresser le tableau de variations complet."],
+    "FRT_M_FCT_02": ["Montrer que f(x)=0 a une solution unique.", "Justifier l'existence d'un unique alpha."],
+    "FRT_P_MECA_01": ["En déduire les coordonnées du vecteur accélération.", "Appliquer la 2e loi de Newton pour trouver a."],
+    "FRT_P_ONDE_01": ["Déterminer la longueur d'onde lambda.", "Quelle est la période spatiale de l'onde ?"]
 }
 
 # ==============================================================================
-# ⚙️ MOTEUR DYNAMIQUE (Vrai Clustering)
+# ⚙️ MOTEUR & FONCTIONS
 # ==============================================================================
 
-def generate_smart_qi_dynamic(frt_id):
-    """Génère une phrase unique"""
-    base = random.choice(QI_TEMPLATES.get(frt_id, [f"Question sur {frt_id}"]))
-    ctx = random.choice(["", " sur I", " pour tout n", " dans R", " définie sur [0;1]"])
+def generate_qi(frt_id):
+    """Génère une phrase élève réaliste"""
+    base = random.choice(QI_PATTERNS.get(frt_id, ["Question type..."]))
+    ctx = random.choice(["", " sur I", " dans le repère", " pour t > 0"])
     return base + ctx
 
-def ingest_and_discover(urls, n_per_url, selected_chapters):
-    """
-    Simule la découverte :
-    - On pioche dans l'UNIVERS selon les Probabilités d'apparition.
-    - Si n_per_url est faible, on ne verra que les fréquentes.
-    - Si n_per_url est élevé, les "rares" vont finir par sortir.
-    """
-    sources_log = []
-    atoms_db = []
+def ingest_factory(urls, n_volume, subject_filter, chapter_filter):
+    """Simule l'usine de traitement"""
+    # 1. Filtrer l'univers des possibles
+    universe = [k for k, v in UNIVERS_SMAXIA.items() 
+                if v["Matiere"] == subject_filter and v["Chap"] in chapter_filter]
     
-    # Filtrer l'univers selon les chapitres demandés
-    possible_universe = [k for k, v in UNIVERS_MATHS.items() if v["Chap"] in selected_chapters]
-    weights = [UNIVERS_MATHS[k]["Proba"] for k in possible_universe] # Poids pour la loi de proba
+    if not universe: return pd.DataFrame(), pd.DataFrame()
     
-    if not possible_universe: return pd.DataFrame(), pd.DataFrame()
-
-    total_ops = len(urls) * n_per_url
+    sources = []
+    atoms = []
+    
+    # 2. Simulation Sourcing
     progress = st.progress(0)
+    total = len(urls) * n_volume
     counter = 0
-    natures = ["BAC", "DST", "CONCOURS"]
     
     for i, url in enumerate(urls):
         if not url.strip(): continue
-        for j in range(n_per_url):
+        for j in range(n_volume):
             counter += 1
-            progress.progress(min(counter/total_ops, 1.0))
+            progress.progress(min(counter/total, 1.0))
             
-            nature = random.choice(natures)
-            year = random.choice(range(2020, 2025))
-            filename = f"Sujet_{nature}_{year}_{j}.pdf"
-            file_id = f"DOC_{i}_{j}"
+            # Création Sujet
+            f_nature = random.choice(["BAC", "DST", "INTERRO"])
+            f_year = random.choice(range(2020, 2025))
+            f_name = f"Sujet_{subject_filter}_{f_nature}_{f_year}_{j}.pdf"
             
-            # Nombre de questions dans ce sujet
-            nb_exos = random.randint(3, 5)
+            # Extraction Qi (Tirage pondéré selon Proba)
+            nb_qi = random.randint(2, 4)
+            weights = [UNIVERS_SMAXIA[k]["Proba"] for k in universe]
+            drawn_frts = random.choices(universe, weights=weights, k=nb_qi)
             
-            # TIRAGE AVEC POIDS (Loi Réaliste)
-            # C'est ici que la magie opère : on ne tire pas au hasard uniforme.
-            # On tire selon la fréquence d'apparition réelle.
-            frts_in_doc = random.choices(possible_universe, weights=weights, k=nb_exos)
-            
-            qi_list_in_file = []
-            
-            for frt_id in frts_in_doc:
-                qi_txt = generate_smart_qi_dynamic(frt_id)
-                atoms_db.append({
-                    "ID_Source": file_id,
-                    "Année": year,
-                    "Qi_Brut": qi_txt,
-                    "FRT_ID": frt_id, # L'ID découvert
-                    "Fichier": filename,
-                    "Chapitre": UNIVERS_MATHS[frt_id]["Chap"]
+            qi_data = []
+            for frt_id in drawn_frts:
+                qi_txt = generate_qi(frt_id)
+                # Base de données atomique (Moteur)
+                atoms.append({
+                    "FRT_ID": frt_id, "Qi": qi_txt, "File": f_name, 
+                    "Year": f_year, "Chap": UNIVERS_SMAXIA[frt_id]["Chap"]
                 })
-                qi_list_in_file.append({"Qi": qi_txt, "FRT_ID": frt_id})
+                # Données pour Audit Interne (Vérité Terrain)
+                qi_data.append({"Qi": qi_txt, "FRT_ID": frt_id})
             
-            content = f"CONTENU SIMULÉ\n{filename}"
-            sources_log.append({
-                "Fichier": filename, "Nature": nature, "Année": year, 
-                "Contenu": content, "Qi_Data": qi_list_in_file
+            sources.append({
+                "Fichier": f_name, 
+                "Nature": f_nature, 
+                "Année": f_year, 
+                "Télécharger": "📥 PDF", # Visuel
+                "Blob_Content": f"Contenu simulé de {f_name}...", # Pour DL réel
+                "Qi_Data": qi_data # Pour l'audit
             })
             
     progress.empty()
-    return pd.DataFrame(sources_log), pd.DataFrame(atoms_db)
+    return pd.DataFrame(sources), pd.DataFrame(atoms)
 
-def compute_dynamic_qc(df_atoms):
-    """
-    Construit les QC UNIQUEMENT à partir de ce qui a été vu.
-    Pas de projection d'une liste fixe.
-    """
+def compute_qc(df_atoms):
+    """Clustering dynamique et Calcul F2"""
     if df_atoms.empty: return pd.DataFrame()
     
-    # 1. Regroupement (Clustering) par Structure (FRT)
+    # Regroupement par FRT (Structure)
     grouped = df_atoms.groupby("FRT_ID").agg({
-        "ID_Source": "count", "Année": "max", 
-        "Qi_Brut": list, "Fichier": list, "Chapitre": "first"
-    }).reset_index()
+        "Qi": "count", "Year": "max", "File": list, "Qi": list, "Chap": "first"
+    }).rename(columns={"Qi": "Qi_List", "File": "File_List"}).reset_index()
     
     qcs = []
-    N_total = len(df_atoms)
-    current_year = datetime.now().year
-    
-    # Tri par fréquence (Les QC les plus importantes en premier)
-    grouped = grouped.sort_values(by="ID_Source", ascending=False).reset_index(drop=True)
+    N_tot = len(df_atoms)
     
     for idx, row in grouped.iterrows():
         frt_id = row["FRT_ID"]
-        kernel_info = UNIVERS_MATHS.get(frt_id)
+        meta = UNIVERS_SMAXIA[frt_id]
+        n_q = len(row["Qi_List"]) # Correction count
         
-        n_q = row["ID_Source"]
-        tau = max((current_year - row["Année"]), 0.5)
-        alpha = 5.0
-        # Simulation d'un Psi calculé
-        psi = 0.85
-        sigma = 0.05
-        score = (n_q / N_total) * (1 + alpha/tau) * psi * (1-sigma) * 100
-        qc_clean = kernel_info["QC"].replace("COMMENT ", "comment ")
-        
-        # Données Pédago Simulées
-        triggers = ["Déclencheur 1", "Déclencheur 2"]
-        ari = ["Etape 1", "Etape 2", "Etape 3"]
-        frt_text = f"**Méthode Standard pour {qc_clean}**\n\n1. Identifier les hypothèses.\n2. Appliquer la formule.\n3. Conclure."
+        # Calcul Variables
+        tau = max((datetime.now().year - row["Year"]), 0.5)
+        psi = 0.85 # Simulé (densité cognitive)
+        score = (n_q / N_tot) * (1 + 5.0/tau) * psi * 100
         
         qcs.append({
-            "Chapitre": row["Chapitre"],
-            "QC_ID_Simple": f"QC_{idx+1:02d}", 
+            "Chapitre": row["Chap"],
+            "QC_ID": f"QC-{idx+1:02d}", # Format demandé
             "FRT_ID": frt_id,
-            "QC_Texte": qc_clean,
-            "Triggers": triggers, "ARI": ari, "FRT_Redaction": frt_text,
-            "Score_F2": score,
-            "n_q": n_q, "N_tot": N_total, "Tau": tau, "Psi": psi,
-            "Evidence": [{"Fichier": f, "Qi": q} for f, q in zip(row["Fichier"], row["Qi_Brut"])]
+            "Titre": meta["QC"],
+            "Score": score, "n_q": n_q, "Psi": psi, "N_tot": N_tot, "t_rec": tau,
+            "Triggers": meta["Triggers"], "ARI": meta["ARI"], "FRT": meta["FRT"],
+            "Evidence": [{"Fichier": f, "Qi": q} for f, q in zip(row["File_List"], row["Qi_List"])]
         })
         
-    return pd.DataFrame(qcs)
+    return pd.DataFrame(qcs).sort_values(by="Score", ascending=False)
 
 # ==============================================================================
-# 🖥️ INTERFACE V13
+# 🖥️ SIDEBAR (NAVIGATION)
 # ==============================================================================
 
 with st.sidebar:
     st.header("1. Paramètres")
-    matiere = st.selectbox("Matière", ["MATHS"])
-    available_chaps = list(set(d["Chap"] for d in UNIVERS_MATHS.values()))
-    selected_chaps = st.multiselect("Chapitres", available_chaps, default=available_chaps)
-    st.markdown("---")
-    st.info("💡 **Mode Découverte :** Le nombre de QC dépend du volume de sujets injectés. Augmentez le volume pour trouver les QC rares.")
+    st.selectbox("Classe", ["Terminale"], disabled=True)
+    
+    # Sélecteur Matière
+    matiere_sel = st.selectbox("Matière", ["MATHS", "PHYSIQUE"])
+    
+    # Calcul dynamique des chapitres dispos dans le Kernel pour cette matière
+    available_chaps = sorted(list(set(
+        v["Chap"] for v in UNIVERS_SMAXIA.values() if v["Matiere"] == matiere_sel
+    )))
+    
+    chapitres_sel = st.multiselect("Chapitres", available_chaps, default=available_chaps)
 
-# TABS
-tab_usine, tab_audit = st.tabs(["🏭 USINE (Discovery)", "✅ AUDIT (Validité)"])
+# ==============================================================================
+# 📑 ONGLETS PRINCIPAUX
+# ==============================================================================
 
-# --- TAB 1 : USINE ---
+tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine (Sourcing & QC)", "✅ Onglet 2 : Audit (Validation)"])
+
+# ------------------------------------------------------------------------------
+# ONGLET 1 : USINE
+# ------------------------------------------------------------------------------
 with tab_usine:
+    # ZONE URL
+    st.subheader("Zone URL & Volume")
     c1, c2 = st.columns([3, 1])
     with c1: 
-        urls_input = st.text_area("Sources", "https://apmep.fr", height=70)
+        urls = st.text_area("Zone d'input URLs", "https://apmep.fr\nhttps://labolycee.org", height=70)
     with c2: 
-        n_sujets = st.number_input("Vol. par URL", 5, 500, 10, step=5) # Jusqu'à 500 pour voir la convergence
-        btn_run = st.button("LANCER USINE 🚀", type="primary")
+        vol = st.number_input("Volume (Sujets)", 5, 200, 15, step=5)
+        run = st.button("LANCER LE SOURCING 🚀", type="primary")
 
-    if btn_run:
-        with st.spinner("Exploration de l'espace mathématique..."):
-            df_src, df_atoms = ingest_and_discover(urls_input.split('\n'), n_sujets, selected_chaps)
-            df_qc = compute_dynamic_qc(df_atoms)
-            st.session_state['df_src'] = df_src
-            st.session_state['df_qc'] = df_qc
-            st.session_state['sel_chaps'] = selected_chaps
-            
-            # Calcul du taux de découverte
-            nb_theorique = len([k for k,v in UNIVERS_MATHS.items() if v["Chap"] in selected_chaps])
-            nb_decouvert = len(df_qc)
-            taux_decouverte = (nb_decouvert / nb_theorique) * 100 if nb_theorique > 0 else 0
-            
-            st.success(f"Terminé. {len(df_src)} sujets traités.")
-            st.info(f"📊 **Performance Moteur :** {nb_decouvert} QC découvertes sur {nb_theorique} possibles ({taux_decouverte:.0f}% de l'univers connu).")
+    if run:
+        with st.spinner("Traitement Usine en cours..."):
+            df_s, df_a = ingest_factory(urls.split('\n'), vol, matiere_sel, chapitres_sel)
+            df_qc = compute_qc(df_a)
+            st.session_state['df_s'] = df_s
+            st.session_state['df_q'] = df_qc
+            st.success(f"Terminé : {len(df_s)} sujets traités.")
 
     st.divider()
 
-    if 'df_qc' in st.session_state:
-        col_left, col_right = st.columns([1, 1.8])
+    # ZONES RESULTATS
+    if 'df_q' in st.session_state:
+        col_L, col_R = st.columns([1, 1.8])
         
-        # GAUCHE : SUJETS (Tableau HTML Full ou Container Scrollable)
-        with col_left:
-            st.markdown(f"### 📥 Sujets ({len(st.session_state['df_src'])})")
+        # --- TABLEAU DES SUJETS (GAUCHE) ---
+        with col_L:
+            st.markdown(f"#### 📄 Sujets Sourcés ({len(st.session_state['df_s'])})")
             
-            # Utilisation d'un container scrollable en CSS pour la liste
-            st.markdown('<div class="subject-list-container">', unsafe_allow_html=True)
-            # On affiche un tableau HTML simple pour la liste des fichiers
-            html_files = "<table class='custom-table'><thead><tr><th>Fichier</th><th>Nature</th><th>Action</th></tr></thead><tbody>"
-            for idx, row in st.session_state['df_src'].iterrows():
-                html_files += f"<tr><td>{row['Fichier']}</td><td>{row['Nature']}</td><td>📥</td></tr>"
-            html_files += "</tbody></table></div>"
-            st.markdown(html_files, unsafe_allow_html=True)
+            # Tableau 3 Colonnes (Fichier, Nature, Année/DL)
+            # On prépare un DF pour l'affichage propre
+            df_view_s = st.session_state['df_s'].copy()
+            df_view_s["Infos / DL"] = df_view_s["Année"].astype(str) + " - " + df_view_s["Télécharger"]
             
-            st.write("")
-            sel = st.selectbox("Fichier cible", st.session_state['df_src']["Fichier"])
-            if not st.session_state['df_src'].empty:
-                txt = st.session_state['df_src'][st.session_state['df_src']["Fichier"]==sel].iloc[0]["Contenu"]
-                st.download_button(f"📥 Télécharger {sel}", txt, file_name=sel)
+            st.dataframe(
+                df_view_s[["Fichier", "Nature", "Infos / DL"]], 
+                use_container_width=True, 
+                height=600,
+                hide_index=True
+            )
+            
+            # Bouton de DL Réel (sous le tableau pour stabilité)
+            sel_file = st.selectbox("Sélectionner pour télécharger :", st.session_state['df_s']["Fichier"])
+            file_blob = st.session_state['df_s'][st.session_state['df_s']["Fichier"]==sel_file].iloc[0]["Blob_Content"]
+            st.download_button(f"📥 Télécharger {sel_file}", file_blob, file_name=sel_file)
 
-        # DROITE : QC (Affichage HTML Total)
-        with col_right:
-            if not st.session_state['df_qc'].empty:
-                chapters = st.session_state['df_qc']["Chapitre"].unique()
-                for chap in chapters:
-                    df_view = st.session_state['df_qc'][st.session_state['df_qc']["Chapitre"] == chap]
-                    st.markdown(f"#### 📘 Chapitre {chap} : {len(df_view)} QC")
+        # --- TABLEAU DES QC (DROITE) ---
+        with col_R:
+            if not st.session_state['df_q'].empty:
+                # Groupement par Chapitre
+                all_chaps = st.session_state['df_q']["Chapitre"].unique()
+                
+                for chap in all_chaps:
+                    qc_subset = st.session_state['df_q'][st.session_state['df_q']["Chapitre"] == chap]
+                    st.markdown(f"#### 📘 Chapitre {chap} : {len(qc_subset)} QC")
                     
-                    for idx, row in df_view.iterrows():
-                        # HEADER
-                        header_html = f"""
-                        <div class="qc-header-row">
-                            <span class="qc-id-tag">[{row['QC_ID_Simple']}]</span>
-                            <span class="qc-title">{row['QC_Texte']}</span>
-                            <span class="qc-vars">
-                                Score(q)={row['Score_F2']:.0f} | n_q={row['n_q']} | Ψ={row['Psi']} | N_tot={row['N_tot']} | t_rec={row['Tau']:.1f}
-                            </span>
-                        </div>
-                        """
-                        st.markdown(header_html, unsafe_allow_html=True)
-                        
-                        c1, c2, c3, c4 = st.columns(4)
-                        with c1:
-                            with st.expander("⚡ Déclencheurs"): st.markdown("<span class='trigger-badge'>Smart Trigger...</span>", unsafe_allow_html=True)
-                        with c2:
-                            with st.expander(f"⚙️ ARI_{row['QC_ID_Simple']}"): st.write("- Etape ARI...")
-                        with c3:
-                            with st.expander(f"📝 FRT_{row['QC_ID_Simple']}"): st.markdown(f"<div class='frt-box'>{row['FRT_Redaction']}</div>", unsafe_allow_html=True)
-                        with c4:
-                            with st.expander(f"📄 Qi associées ({row['n_q']})"):
-                                html_table = "<table class='custom-table'><thead><tr><th>Fichier</th><th>Qi</th></tr></thead><tbody>"
-                                for item in row['Evidence']:
-                                    html_table += f"<tr><td>{item['Fichier']}</td><td>{item['Qi']}</td></tr>"
-                                html_table += "</tbody></table>"
-                                st.markdown(html_table, unsafe_allow_html=True)
-                        st.write("") 
+                    for _, row in qc_subset.iterrows():
+                        # CARTE QC
+                        with st.container():
+                            # LIGNE 1 : ID, Titre, Stats
+                            # Format : QC_ID « Nom » Score...
+                            header_html = f"""
+                            <div class="qc-card">
+                                <span class="qc-id">{row['QC_ID']}</span>
+                                <span class="qc-title">« {row['Titre']} »</span>
+                                <span class="qc-stats">
+                                    Score(q)={row['Score']:.0f} | n_q={row['n_q']} | Ψ={row['Psi']} | N_tot={row['N_tot']} | t_rec={row['t_rec']:.1f}
+                                </span>
+                            </div>
+                            """
+                            st.markdown(header_html, unsafe_allow_html=True)
+                            
+                            # LIGNE 2+ : DÉTAILS (Déclencheurs, ARI, FRT, Qi)
+                            c1, c2, c3, c4 = st.columns(4)
+                            
+                            with c1:
+                                with st.expander("⚡ Déclencheurs"):
+                                    for t in row['Triggers']: 
+                                        st.markdown(f"<span class='trigger-badge'>{t}</span>", unsafe_allow_html=True)
+                            
+                            with c2:
+                                with st.expander(f"⚙️ ARI"):
+                                    for s in row['ARI']: st.markdown(f"<div class='ari-step'>- {s}</div>", unsafe_allow_html=True)
+                                    
+                            with c3:
+                                with st.expander(f"📝 FRT"):
+                                    st.markdown(f"<div class='frt-box'>{row['FRT']}</div>", unsafe_allow_html=True)
+                                    
+                            with c4:
+                                with st.expander(f"📄 Qi ({row['n_q']})"):
+                                    # Table HTML pour Qi
+                                    html_qi = "<table class='full-table'><thead><tr><th>Fichier</th><th>Qi</th></tr></thead><tbody>"
+                                    for item in row['Evidence']:
+                                        html_qi += f"<tr><td>{item['Fichier']}</td><td>{item['Qi']}</td></tr>"
+                                    html_qi += "</tbody></table>"
+                                    st.markdown(html_qi, unsafe_allow_html=True)
+                            
+                            st.write("") # Spacer
             else:
-                st.warning("Aucune QC trouvée.")
+                st.warning("Aucune QC trouvée. Augmentez le volume.")
 
-# --- TAB 2 : AUDIT STRICT ---
+# ------------------------------------------------------------------------------
+# ONGLET 2 : AUDIT
+# ------------------------------------------------------------------------------
 with tab_audit:
-    st.subheader("Validation Booléenne (Tableau de Mapping)")
+    st.subheader("Validation Booléenne")
     
-    if 'df_qc' in st.session_state:
+    if 'df_q' in st.session_state:
         
-        # TEST 1 : INTERNE
-        st.markdown("#### 1. Audit Interne (Mémoire Moteur)")
-        test_file = st.selectbox("Sujet Traité", st.session_state['df_src']["Fichier"])
+        # --- TEST 1 : INTERNE ---
+        st.markdown("#### 1. Test 1 : Couverture Interne (Sujet Traité)")
+        t1_file = st.selectbox("Choisir un sujet traité", st.session_state['df_s']["Fichier"])
         
-        if st.button("LANCER L'AUDIT INTERNE"):
-            file_data = st.session_state['df_src'][st.session_state['df_src']["Fichier"]==test_file].iloc[0]
-            qi_list = file_data["Qi_Data"]
-            mapping_rows = []
-            c_ok = 0
-            qc_lookup = st.session_state['df_qc'].set_index("FRT_ID")
+        if st.button("LANCER TEST 1"):
+            # Données vérité
+            data = st.session_state['df_s'][st.session_state['df_s']["Fichier"]==t1_file].iloc[0]["Qi_Data"]
             
-            for item in qi_list:
-                frt_id = item["FRT_ID"]
-                is_covered = frt_id in qc_lookup.index
-                if is_covered:
-                    c_ok += 1
-                    qc_info = qc_lookup.loc[frt_id]
-                    if isinstance(qc_info, pd.DataFrame): qc_info = qc_info.iloc[0]
-                    qc_disp = f"[{qc_info['QC_ID_Simple']}] {qc_info['QC_Texte']}"
-                    status = "✅ MATCH"
-                else:
-                    qc_disp = "---"
-                    status = "❌ PERTE DE DONNÉES"
-                mapping_rows.append({"Qi (Sujet)": item["Qi"], "QC Moteur": qc_disp, "Statut": status})
+            # Vérif existence dans le moteur actuel
+            known_ids = st.session_state['df_q']["FRT_ID"].unique()
             
-            taux = (c_ok / len(qi_list)) * 100
-            st.markdown(f"<div class='stat-metric'>Taux de Couverture : {taux:.0f}%</div>", unsafe_allow_html=True)
+            match_count = 0
+            res_rows = []
             
-            html_audit = "<table class='custom-table'><thead><tr><th>Qi</th><th>QC Moteur</th><th>Statut</th></tr></thead><tbody>"
-            for row in mapping_rows:
-                color = "#dcfce7" if "MATCH" in row['Statut'] else "#fee2e2"
-                html_audit += f"<tr style='background-color:{color}'><td>{row['Qi (Sujet)']}</td><td>{row['QC Moteur']}</td><td>{row['Statut']}</td></tr>"
-            html_audit += "</tbody></table>"
-            st.markdown(html_audit, unsafe_allow_html=True)
+            for item in data:
+                is_ok = item["FRT_ID"] in known_ids
+                if is_ok: match_count += 1
+                status = "✅ MATCH" if is_ok else "❌ ERREUR"
+                res_rows.append({"Qi": item["Qi"], "Statut": status})
+                
+            taux = (match_count / len(data)) * 100
+            st.markdown(f"<div class='audit-metric'>Couverture : {taux:.0f}%</div>", unsafe_allow_html=True)
+            st.table(pd.DataFrame(res_rows))
 
         st.divider()
 
-        # TEST 2 : EXTERNE
-        st.markdown("#### 2. Audit Externe (Capacité de Généralisation)")
-        st.caption("Ce test génère un sujet piochant dans TOUT l'Univers Théorique. Si le moteur n'a pas assez appris (trop peu de sujets injectés), il ratera les QC rares.")
+        # --- TEST 2 : EXTERNE ---
+        st.markdown("#### 2. Test 2 : Couverture Externe (Sujet Inconnu)")
         
-        if st.button("GÉNÉRER SUJET EXTERNE & TESTER"):
-            # On prend dans TOUT l'univers (même ce que le moteur n'a pas vu)
-            target_chaps = st.session_state.get('sel_chaps', [])
-            all_hidden = [k for k,v in UNIVERS_MATHS.items() if v["Chap"] in target_chaps]
+        if st.button("LANCER TEST 2 (Génération Sujet)"):
+            # Génération d'un sujet "Hors Usine" (On pioche dans l'univers complet du périmètre)
+            universe = [k for k, v in UNIVERS_SMAXIA.items() 
+                        if v["Matiere"] == matiere_sel and v["Chap"] in chapitres_sel]
             
-            # On force le tirage de QC rares pour tester la limite
-            test_frts = random.sample(all_hidden, k=min(5, len(all_hidden)))
-            
-            ext_rows = []
-            c_ok = 0
-            qc_lookup = st.session_state['df_qc'].set_index("FRT_ID")
-            
-            for frt_id in test_frts:
-                qi_txt = generate_smart_qi_dynamic(frt_id)
-                # Le moteur connait-il cette FRT ?
-                is_known = frt_id in qc_lookup.index
-                
-                if is_known:
-                    c_ok += 1
-                    qc_info = qc_lookup.loc[frt_id]
-                    if isinstance(qc_info, pd.DataFrame): qc_info = qc_info.iloc[0]
-                    qc_disp = f"[{qc_info['QC_ID_Simple']}] {qc_info['QC_Texte']}"
-                    status = "✅ MATCH"
-                else:
-                    qc_disp = "---"
-                    status = "❌ MANQUANT (Non appris)"
-                
-                ext_rows.append({"Qi (Sujet Externe)": qi_txt, "QC Moteur": qc_disp, "Statut": status})
-            
-            taux = (c_ok / len(test_frts)) * 100
-            st.markdown(f"<div class='stat-metric'>Couverture Externe : {taux:.0f}%</div>", unsafe_allow_html=True)
-            
-            if taux < 100:
-                st.warning(f"⚠️ Le moteur n'a couvert que {taux:.0f}% de ce sujet. Cela signifie qu'il contient des questions rares que le moteur n'a pas encore rencontrées dans l'Usine. -> ACTION : Augmenter le volume de sujets.")
+            if not universe:
+                st.error("Périmètre vide.")
             else:
-                st.success("✅ PERFORMANCE OPTIMALE : Le moteur connait toutes les QC nécessaires pour ce sujet.")
+                # On pioche 5 questions au hasard
+                test_frts = random.sample(universe, k=min(5, len(universe)))
                 
-            html_audit = "<table class='custom-table'><thead><tr><th>Qi</th><th>QC Moteur</th><th>Statut</th></tr></thead><tbody>"
-            for row in ext_rows:
-                color = "#dcfce7" if "MATCH" in row['Statut'] else "#fee2e2"
-                html_audit += f"<tr style='background-color:{color}'><td>{row['Qi (Sujet Externe)']}</td><td>{row['QC Moteur']}</td><td>{row['Statut']}</td></tr>"
-            html_audit += "</tbody></table>"
-            st.markdown(html_audit, unsafe_allow_html=True)
+                known_ids = st.session_state['df_q']["FRT_ID"].unique()
+                match_count = 0
+                ext_rows = []
+                
+                for frt in test_frts:
+                    qi_txt = generate_qi(frt) # Nouvelle phrase
+                    is_ok = frt in known_ids
+                    if is_ok: match_count += 1
+                    
+                    # Récup info QC si trouvée
+                    if is_ok:
+                        qc_info = st.session_state['df_q'][st.session_state['df_q']["FRT_ID"]==frt].iloc[0]
+                        qc_disp = f"{qc_info['QC_ID']} {qc_info['Titre']}"
+                        status = "✅ MATCH"
+                    else:
+                        qc_disp = "---"
+                        status = "❌ MANQUANT"
+                        
+                    ext_rows.append({"Qi (Externe)": qi_txt, "QC Moteur": qc_disp, "Statut": status})
+                
+                taux_ext = (match_count / len(test_frts)) * 100
+                st.markdown(f"<div class='audit-metric'>Couverture : {taux_ext:.0f}%</div>", unsafe_allow_html=True)
+                
+                # Table colorée pour le mapping
+                def color_row(row):
+                    return ['background-color: #dcfce7' if row['Statut'] == "✅ MATCH" else 'background-color: #fee2e2'] * len(row)
+                
+                st.dataframe(pd.DataFrame(ext_rows).style.apply(color_row, axis=1), use_container_width=True)
 
     else:
-        st.info("Lancez l'usine.")
+        st.info("Veuillez lancer l'usine en Onglet 1 d'abord.")
