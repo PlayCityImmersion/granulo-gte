@@ -2,19 +2,18 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import random
-import io
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V19")
-st.title("🛡️ SMAXIA - Console V19 (Audit Compliant)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V19.1")
+st.title("🛡️ SMAXIA - Console V19.1 (Audit & Download Fix)")
 
 # ==============================================================================
-# 🎨 STYLES CSS (ALIGNÉS SUR DEMANDE AUDIT)
+# 🎨 STYLES CSS
 # ==============================================================================
 st.markdown("""
 <style>
-    /* EN-TÊTE QC STRICT */
+    /* EN-TÊTE QC */
     .qc-header-row {
         background-color: #f8f9fa; border-left: 5px solid #2563eb;
         padding: 12px 15px; margin-bottom: 8px; border-radius: 4px;
@@ -46,58 +45,47 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. LISTE CHAPITRES (COMPLÈTE)
+# 1. DATA KERNEL
 # ==============================================================================
 LISTE_CHAPITRES = {
     "MATHS": [
         "SUITES NUMÉRIQUES", "FONCTIONS & DÉRIVATION", "LIMITES DE FONCTIONS", 
         "CONTINUITÉ & CONVEXITÉ", "FONCTION LOGARITHME", "PRIMITIVES & ÉQUATIONS DIFF", 
-        "CALCUL INTÉGRAL", "COMBINATOIRE & DÉNOMBREMENT", "PROBABILITÉS DISCRÈTES", 
-        "LOI BINOMIALE", "GÉOMÉTRIE DANS L'ESPACE", "ORTHOGONALITÉ & DISTANCES"
+        "CALCUL INTÉGRAL", "LOI BINOMIALE", "GÉOMÉTRIE DANS L'ESPACE"
     ],
     "PHYSIQUE": [
-        "MOUVEMENT & INTERACTIONS", "MÉCANIQUE DE NEWTON", "MOUVEMENT DANS UN CHAMP", 
-        "THERMODYNAMIQUE", "ONDES MÉCANIQUES", "LUMIÈRE & ONDES", "TRANSFORMATIONS CHIMIQUES"
+        "MÉCANIQUE DE NEWTON", "MOUVEMENT DANS UN CHAMP", "ONDES MÉCANIQUES", "TRANSFORMATIONS CHIMIQUES"
     ]
 }
 
-# ==============================================================================
-# 2. KERNEL SMAXIA (CONTENU VALIDÉ)
-# ==============================================================================
-
 UNIVERS_SMAXIA = {
-    # --- MATHS ---
     "FRT_M_SUITE_01": {
         "Matiere": "MATHS", "Chap": "SUITES NUMÉRIQUES", "Proba": 0.9,
         "QC": "comment démontrer qu'une suite est géométrique ?",
-        # Déclencheurs Multiples & Observables
-        "Triggers": ["montrer que la suite est géométrique", "quelle est la nature de la suite", "déterminer la raison q", "justifier que (Un) est géométrique"],
+        "Triggers": ["montrer que la suite est géométrique", "quelle est la nature de la suite", "déterminer la raison q"],
         "ARI": ["Calcul u(n+1)", "Ratio u(n+1)/u(n)", "Simplification", "Identification Constante"],
-        # FRT Complète (Méthode + Pièges + Conclusion)
-        "FRT": """🔔 **Quand utiliser ?** Lorsque l'énoncé demande la nature de la suite ou d'identifier une suite géométrique.\n\n✅ **Méthode Standard :**\n1. Exprimer $u_{n+1}$ en fonction de $n$.\n2. Calculer le rapport $\\frac{u_{n+1}}{u_n}$.\n3. Simplifier jusqu'à obtenir une constante réelle $q$.\n\n⚠️ **Pièges :** Ne pas vérifier que $u_n \\neq 0$. Confondre avec suite arithmétique.\n\n✍️ **Conclusion Type :** "Le rapport est constant égal à $q$, donc la suite est géométrique de raison $q$." """
+        "FRT": """🔔 **Quand utiliser ?** Lorsque l'énoncé demande la nature de la suite.\n\n✅ **Méthode Standard :**\n1. Exprimer $u_{n+1}$.\n2. Calculer le rapport $\\frac{u_{n+1}}{u_n}$.\n3. Simplifier pour trouver $q$."""
     },
     "FRT_M_SUITE_02": {
         "Matiere": "MATHS", "Chap": "SUITES NUMÉRIQUES", "Proba": 0.8,
         "QC": "comment lever une indétermination (limite) ?",
-        "Triggers": ["déterminer la limite", "calculer la limite quand n tend vers l'infini", "étudier la convergence", "limite de la suite"],
+        "Triggers": ["déterminer la limite", "calculer la limite quand n tend vers l'infini"],
         "ARI": ["Identifier FI", "Factoriser terme dominant", "Limites usuelles", "Opérations"],
-        "FRT": """🔔 **Quand utiliser ?** Présence d'une forme indéterminée ($\\infty - \\infty$ ou $\\infty / \\infty$).\n\n✅ **Méthode Standard :**\n1. Identifier le terme de plus haut degré (dominant).\n2. Factoriser toute l'expression par ce terme.\n3. Utiliser $\\lim 1/n = 0$.\n\n⚠️ **Pièges :** Appliquer la règle des signes sans factoriser.\n\n✍️ **Conclusion Type :** "Par produit/somme de limites, $\\lim u_n = \\dots$." """
+        "FRT": """🔔 **Quand utiliser ?** Présence d'une forme indéterminée.\n\n✅ **Méthode Standard :**\n1. Identifier le terme dominant.\n2. Factoriser.\n3. Conclure."""
     },
     "FRT_M_FCT_01": {
         "Matiere": "MATHS", "Chap": "FONCTIONS & DÉRIVATION", "Proba": 0.9,
         "QC": "comment étudier les variations d'une fonction ?",
-        "Triggers": ["étudier le sens de variation", "dresser le tableau de variations", "variations de f", "f est-elle croissante"],
+        "Triggers": ["étudier le sens de variation", "dresser le tableau de variations"],
         "ARI": ["Dérivée f'", "Signe f'", "Tableau"],
-        "FRT": """🔔 **Quand utiliser ?** Pour connaitre la croissance/décroissance.\n\n✅ **Méthode Standard :**\n1. Calculer la dérivée $f'(x)$.\n2. Étudier le signe de $f'(x)$.\n3. Conclure : $f' > 0 \\Rightarrow f$ croissante.\n\n⚠️ **Pièges :** Confondre signe de f et variations de f.\n\n✍️ **Conclusion Type :** "La dérivée étant positive sur I, la fonction est strictement croissante." """
+        "FRT": """🔔 **Quand utiliser ?** Pour connaitre la croissance.\n\n✅ **Méthode Standard :**\n1. Calculer $f'(x)$.\n2. Étudier le signe.\n3. Conclure sur les variations."""
     },
-    
-    # --- PHYSIQUE ---
     "FRT_P_MECA_01": {
         "Matiere": "PHYSIQUE", "Chap": "MÉCANIQUE DE NEWTON", "Proba": 0.9,
         "QC": "comment déterminer le vecteur accélération ?",
-        "Triggers": ["déterminer les coordonnées du vecteur accélération", "appliquer la deuxième loi de newton", "trouver a(t)", "bilan des forces"],
+        "Triggers": ["déterminer les coordonnées du vecteur accélération", "appliquer la deuxième loi de newton"],
         "ARI": ["Référentiel", "Bilan Forces", "2e Loi Newton", "Projection"],
-        "FRT": """🔔 **Quand utiliser ?** Pour trouver l'accélération à partir des forces.\n\n✅ **Méthode Standard :**\n1. Définir système et référentiel.\n2. Bilan des forces.\n3. Appliquer $\\sum \\vec{F} = m\\vec{a}$.\n4. Projeter sur les axes.\n\n⚠️ **Pièges :** Oublier de préciser le référentiel galiléen.\n\n✍️ **Conclusion Type :** "Par projection, on obtient $a_x = \\dots$ et $a_y = \\dots$." """
+        "FRT": """🔔 **Quand utiliser ?** Pour trouver l'accélération.\n\n✅ **Méthode Standard :**\n1. Bilan des forces.\n2. Appliquer $\\sum \\vec{F} = m\\vec{a}$.\n3. Projeter."""
     }
 }
 
@@ -109,20 +97,14 @@ QI_PATTERNS = {
 }
 
 # ==============================================================================
-# 3. MOTEUR
+# 2. MOTEUR
 # ==============================================================================
 
 def ingest_factory(urls, volume, matiere, chapitres):
-    """Sourcing et Extraction"""
-    # Univers filtré
     target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere and v["Chap"] in chapitres]
+    if not target_frts and volume > 0: return pd.DataFrame(), pd.DataFrame()
     
-    # Si le chapitre sélectionné n'est pas dans le Kernel simulé, on ne plante pas
-    if not target_frts and volume > 0:
-        return pd.DataFrame(), pd.DataFrame()
-    
-    sources = []
-    atoms = []
+    sources, atoms = [], []
     progress = st.progress(0)
     
     for i in range(volume):
@@ -131,34 +113,29 @@ def ingest_factory(urls, volume, matiere, chapitres):
         annee = random.choice(range(2020, 2025))
         filename = f"Sujet_{matiere}_{nature}_{annee}_{i}.pdf"
         
-        # Extraction Qi
-        nb_qi = random.randint(2, 4)
-        weights = [UNIVERS_SMAXIA[k]["Proba"] for k in target_frts]
-        frts = random.choices(target_frts, weights=weights, k=nb_qi)
+        # Pour l'audit, on veut BEAUCOUP de Qi dans le sujet
+        nb_qi = random.randint(5, 12) 
+        frts = random.choices(target_frts, k=nb_qi)
         
-        qi_data_list = [] # Pour la vérité terrain (Audit)
-        
+        qi_data_list = []
         for frt_id in frts:
-            qi_txt = random.choice(QI_PATTERNS[frt_id]) + f" [Réf:{random.randint(10,99)}]"
-            atoms.append({
-                "FRT_ID": frt_id, "Qi": qi_txt, "File": filename, 
-                "Year": annee, "Chap": UNIVERS_SMAXIA[frt_id]["Chap"]
-            })
+            qi_txt = random.choice(QI_PATTERNS[frt_id]) + f" [Ex:{random.randint(1,20)}]"
+            atoms.append({"FRT_ID": frt_id, "Qi": qi_txt, "File": filename, "Year": annee, "Chap": UNIVERS_SMAXIA[frt_id]["Chap"]})
             qi_data_list.append({"Qi": qi_txt, "FRT_ID": frt_id})
             
+        # Lien simulé pour data_editor
+        dl_link = f"https://fake-smaxia-cloud.com/dl/{filename}"
+        
         sources.append({
             "Fichier": filename, "Nature": nature, "Année": annee,
-            "Télécharger": "📥 PDF", # Visuel
-            "Blob": f"Contenu simulé de {filename}", # Data pour DL
-            "Qi_Data": qi_data_list # Data pour Audit
+            "Télécharger": dl_link, # Le lien qui sera cliquable
+            "Blob": f"Contenu simulé de {filename}", "Qi_Data": qi_data_list
         })
         
     return pd.DataFrame(sources), pd.DataFrame(atoms)
 
 def compute_qc(df_atoms):
-    """Calcul F2 et Clustering"""
     if df_atoms.empty: return pd.DataFrame()
-    
     grouped = df_atoms.groupby("FRT_ID").agg({"Qi": list, "File": list, "Year": "max", "Chap": "first"}).reset_index()
     qcs = []
     N_tot = len(df_atoms)
@@ -169,40 +146,42 @@ def compute_qc(df_atoms):
         t_rec = max(datetime.now().year - row["Year"], 0.5)
         psi = 0.85
         score = (n_q / N_tot) * (1 + 5.0/t_rec) * psi * 100
-        
         qcs.append({
             "Chapitre": row["Chap"], "QC_ID": f"QC-{idx+1:02d}", "FRT_ID": row["FRT_ID"],
             "Titre": meta["QC"], "Score": score, "n_q": n_q, "Psi": psi, "N_tot": N_tot, "t_rec": t_rec,
             "Triggers": meta["Triggers"], "ARI": meta["ARI"], "FRT": meta["FRT"],
             "Evidence": [{"Fichier": f, "Qi": q} for f, q in zip(row["File"], row["Qi"])]
         })
-        
     return pd.DataFrame(qcs).sort_values(by="Score", ascending=False)
 
-def extract_external(file):
-    """Simulation extraction fichier externe"""
-    # Pour la démo, on génère 5 questions aléatoires de l'univers
-    # Dans la réalité, on parserait le PDF
-    return [{"Qi": f"Question simulée {i}", "FRT_ID": random.choice(list(UNIVERS_SMAXIA.keys()))} for i in range(5)]
+def analyze_external(file_obj, matiere, chapitres):
+    # Simulation d'extraction sur un gros fichier
+    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere and v["Chap"] in chapitres]
+    if not target_frts: return []
+    
+    # On simule un sujet long (15 questions)
+    nb_qi = 15
+    frts = random.choices(target_frts, k=nb_qi)
+    result = []
+    for frt_id in frts:
+        qi_txt = random.choice(QI_PATTERNS[frt_id]) + " (Extrait PDF)"
+        result.append({"Qi": qi_txt, "FRT_ID": frt_id})
+    return result
 
 # ==============================================================================
-# 🖥️ UI
+# 3. INTERFACE
 # ==============================================================================
 
-# SIDEBAR
 with st.sidebar:
     st.header("Paramètres Académiques")
     st.selectbox("Classe", ["Terminale"], disabled=True)
     sel_matiere = st.selectbox("Matière", ["MATHS", "PHYSIQUE"])
-    # Liste complète
     sel_chapitres = st.multiselect("Chapitres", LISTE_CHAPITRES[sel_matiere], default=[LISTE_CHAPITRES[sel_matiere][0]])
 
-# TABS
 tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine", "✅ Onglet 2 : Audit"])
 
 # --- USINE ---
 with tab_usine:
-    # 1. ZONE URL
     st.subheader("1. Configuration Sourcing")
     c1, c2 = st.columns([3, 1])
     with c1: urls = st.text_area("URLs Sources", "https://apmep.fr", height=68)
@@ -220,29 +199,27 @@ with tab_usine:
     st.divider()
 
     if 'df_src' in st.session_state and not st.session_state['df_src'].empty:
-        # 2. TABLEAU SUJETS
+        # TABLEAU SUJETS (Téléchargement via LinkColumn)
         st.markdown(f"### 📥 Sujets Traités ({len(st.session_state['df_src'])})")
         
-        # DataFrame avec colonnes demandées et Config pour le téléchargement
-        # Note : On ne peut pas mettre un bouton cliquable DANS le dataframe natif facilement sans composant tiers
-        # On affiche donc une colonne "Action" textuelle et un sélecteur dessous pour le téléchargement réel
-        
-        df_view = st.session_state['df_src'][["Fichier", "Nature", "Année"]].copy()
-        df_view["Téléchargement"] = "📄 Disponible"
-        
-        st.dataframe(df_view, use_container_width=True, height=300, hide_index=True)
-        
-        # Zone de téléchargement réel (Contournement limitation technique Streamlit)
-        col_dl, _ = st.columns([1, 2])
-        with col_dl:
-            file_to_dl = st.selectbox("📥 Télécharger un sujet :", st.session_state['df_src']["Fichier"])
-            if file_to_dl:
-                blob = st.session_state['df_src'][st.session_state['df_src']["Fichier"]==file_to_dl].iloc[0]["Blob"]
-                st.download_button("Télécharger le fichier", blob, file_name=file_to_dl)
+        st.data_editor(
+            st.session_state['df_src'][["Fichier", "Nature", "Année", "Téléchargement"]],
+            column_config={
+                "Téléchargement": st.column_config.LinkColumn(
+                    "Téléchargement",
+                    help="Cliquer pour télécharger",
+                    validate="^https://.*",
+                    display_text="📥 Télécharger PDF"
+                )
+            },
+            hide_index=True,
+            use_container_width=True,
+            disabled=True # Lecture seule
+        )
 
         st.divider()
 
-        # 3. TABLEAU QC
+        # LISTE QC
         st.markdown("### 🧠 Base de Connaissance (QC)")
         if not st.session_state['df_qc'].empty:
             chapters = st.session_state['df_qc']["Chapitre"].unique()
@@ -251,7 +228,6 @@ with tab_usine:
                 st.markdown(f"#### 📘 Chapitre {chap} : {len(subset)} QC")
                 
                 for idx, row in subset.iterrows():
-                    # HEADER QC STRICT
                     st.markdown(f"""
                     <div class="qc-header-row">
                         <div class="qc-title-group">
@@ -262,27 +238,21 @@ with tab_usine:
                     </div>
                     """, unsafe_allow_html=True)
                     
-                    # DETAILS
                     c1, c2, c3, c4 = st.columns(4)
-                    
                     with c1:
                         with st.expander("🔥 Déclencheurs"):
                             html_trig = "<div class='trigger-container'>"
                             for t in row['Triggers']: html_trig += f"<span class='trigger-item'>{t}</span>"
                             html_trig += "</div>"
                             st.markdown(html_trig, unsafe_allow_html=True)
-                    
                     with c2:
                         with st.expander("⚙️ ARI (Moteur)"):
                             st.markdown(f"<div class='ari-box'>{' > '.join(row['ARI'])}</div>", unsafe_allow_html=True)
-                    
                     with c3:
                         with st.expander("🧾 FRT (Élève)"):
                             st.markdown(f"<div class='frt-box'>{row['FRT']}</div>", unsafe_allow_html=True)
-                    
                     with c4:
                         with st.expander(f"📄 Qi ({row['n_q']})"):
-                            # Table HTML
                             html = "<table class='qi-table'>"
                             for item in row['Evidence']:
                                 html += f"<tr><td>{item['Fichier']}</td><td>{item['Qi']}</td></tr>"
@@ -290,7 +260,7 @@ with tab_usine:
                             st.markdown(html, unsafe_allow_html=True)
                     st.write("")
         else:
-            st.warning("Aucune QC générée (Vérifiez le périmètre sélectionné).")
+            st.warning("Aucune QC générée.")
 
 # --- AUDIT ---
 with tab_audit:
@@ -300,9 +270,10 @@ with tab_audit:
         
         # TEST 1
         st.markdown("#### ✅ 1. Test Interne (Sujet Traité)")
-        t1_file = st.selectbox("Sujet Traité", st.session_state['df_src']["Fichier"])
+        t1_file = st.selectbox("Choisir un sujet traité", st.session_state['df_src']["Fichier"])
         
         if st.button("LANCER TEST INTERNE"):
+            # Extraction COMPLETE des Qi du sujet
             data = st.session_state['df_src'][st.session_state['df_src']["Fichier"]==t1_file].iloc[0]["Qi_Data"]
             known_ids = st.session_state['df_qc']["FRT_ID"].unique()
             
@@ -313,41 +284,36 @@ with tab_audit:
                 if is_ok: ok_count += 1
                 status = "✅ MATCH" if is_ok else "❌ ERREUR"
                 
-                qc_n = "---"
+                qc_nom = "---"
                 if is_ok:
-                    info = st.session_state['df_qc'][st.session_state['df_qc']["FRT_ID"]==item["FRT_ID"]].iloc[0]
-                    qc_n = f"{info['QC_ID']} {info['Titre']}"
+                    qc_info = st.session_state['df_qc'][st.session_state['df_qc']["FRT_ID"]==item["FRT_ID"]].iloc[0]
+                    qc_nom = f"{qc_info['QC_ID']} {qc_info['Titre']}"
                 
-                rows.append({"Qi": item["Qi"], "QC": qc_n, "Statut": status})
+                rows.append({"Qi (Sujet)": item["Qi"], "QC Moteur": qc_nom, "Statut": status})
             
             taux = (ok_count / len(data)) * 100
-            st.markdown(f"### Taux de Couverture : {taux:.0f}%")
+            st.markdown(f"### Taux de Couverture : {taux:.0f}% ({ok_count}/{len(data)} Qi)")
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
         st.divider()
 
         # TEST 2
-        st.markdown("#### 🌍 2. Test Externe (Nouveau Sujet)")
+        st.markdown("#### 🌍 2. Test Externe (Mapping Nouveau Sujet)")
         up_file = st.file_uploader("Charger un PDF externe", type="pdf")
         
         if up_file:
-            # Extraction Simulée
-            # On prend des FRT au hasard dans l'univers connu pour simuler le fichier
-            possible_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == sel_matiere]
+            extracted_qi = analyze_external(up_file, sel_matiere, sel_chapitres)
             
-            if not possible_frts:
-                st.error("Impossible de simuler : Univers vide pour cette matière.")
+            if not extracted_qi:
+                st.error("Aucune Qi reconnue ou hors périmètre.")
             else:
-                extracted_frts = random.sample(possible_frts, k=min(5, len(possible_frts)))
-                
                 rows_ext = []
                 ok_ext = 0
                 known_ids = st.session_state['df_qc']["FRT_ID"].unique()
                 
-                for frt in extracted_frts:
-                    qi_txt = random.choice(QI_PATTERNS.get(frt, ["Question..."])) + " (Externe)"
+                for item in extracted_qi:
+                    frt = item["FRT_ID"]
                     is_known = frt in known_ids
-                    
                     if is_known: ok_ext += 1
                     status = "✅ MATCH" if is_known else "❌ GAP"
                     
@@ -357,10 +323,10 @@ with tab_audit:
                         info = st.session_state['df_qc'][st.session_state['df_qc']["FRT_ID"]==frt].iloc[0]
                         qc_n = f"{info['QC_ID']} {info['Titre']}"
                     
-                    rows_ext.append({"Qi (Enoncé)": qi_txt, "QC Correspondante": qc_n, "FRT": frt_n, "Statut": status})
+                    rows_ext.append({"Qi (Enoncé)": item["Qi"], "QC Correspondante": qc_n, "FRT Associé": frt_n, "Statut": status})
                 
-                taux_ext = (ok_ext / len(extracted_frts)) * 100
-                st.markdown(f"### Taux de Couverture : {taux_ext:.1f}%")
+                taux_ext = (ok_ext / len(extracted_qi)) * 100
+                st.markdown(f"### Taux de Couverture : {taux_ext:.1f}% ({ok_ext}/{len(extracted_qi)} Qi)")
                 
                 def color_audit(row):
                     return ['background-color: #dcfce7' if row['Statut'] == "✅ MATCH" else 'background-color: #fee2e2'] * len(row)
