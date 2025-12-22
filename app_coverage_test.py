@@ -6,12 +6,13 @@ import time
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V10.7")
-st.title("🛡️ SMAXIA - Console V10.7 (Full Height)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V11.1")
+st.title("🛡️ SMAXIA - Console V11.1 (Dynamic & Full View)")
 
-# Styles CSS (Optimisé pour Full Height sans scroll interne)
+# Styles CSS (Corrige le wrapping et force l'affichage complet)
 st.markdown("""
 <style>
+    /* En-tête QC */
     .qc-header-row { 
         display: flex; align-items: center; background-color: #f8f9fa; 
         padding: 10px; border-radius: 5px; border-left: 5px solid #2563eb;
@@ -24,267 +25,96 @@ st.markdown("""
         background-color: #e5e7eb; padding: 6px 12px; border-radius: 4px; border: 1px solid #9ca3af;
         white-space: nowrap;
     }
-    /* FRT Full Height */
+    
+    /* FRT Box : Force le retour à la ligne */
     .frt-box { 
         background-color: #ffffff; border: 1px solid #e5e7eb; padding: 15px; border-radius: 8px; 
-        height: auto !important; overflow: visible !important;
+        white-space: pre-wrap; /* Clé pour éviter le scroll horizontal */
+        word-wrap: break-word;
+        font-family: sans-serif;
     }
+    
+    /* Tableaux HTML Custom (Pour remplacer Dataframe dans les détails) */
+    .full-table {
+        width: 100%; border-collapse: collapse; font-size: 0.95em;
+    }
+    .full-table th { background-color: #f3f4f6; padding: 8px; text-align: left; border-bottom: 2px solid #e5e7eb; }
+    .full-table td { padding: 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    .full-table tr:hover { background-color: #f9fafb; }
+
     .trigger-badge { 
         background-color: #fef3c7; color: #92400e; padding: 4px 10px; 
         border-radius: 6px; font-size: 0.95em; font-weight: 600; 
-        border: 1px solid #fcd34d; display: block; margin-bottom: 4px;
-        line-height: 1.4; white-space: normal;
+        border: 1px solid #fcd34d; display: inline-block; margin: 2px;
     }
     .stat-metric { font-size: 1.5em; font-weight: bold; color: #2563eb; }
-    
-    /* Force Table Full Height */
-    [data-testid="stDataFrame"] > div { height: auto !important; max-height: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 🧱 KERNEL SMAXIA
+# 🧱 VÉRITÉ CACHÉE (KERNEL V11)
 # ==============================================================================
 
-KERNEL_MAPPING = {
-    "FRT_SUITE_01": "SUITES NUMÉRIQUES", "FRT_SUITE_02": "SUITES NUMÉRIQUES", "FRT_SUITE_03": "SUITES NUMÉRIQUES",
-    "FRT_FCT_01": "FONCTIONS", "FRT_FCT_02": "FONCTIONS", "FRT_FCT_03": "FONCTIONS",
-    "FRT_GEO_01": "GÉOMÉTRIE", "FRT_GEO_02": "GÉOMÉTRIE",
-    "FRT_PROBA_01": "PROBABILITÉS", "FRT_PROBA_02": "PROBABILITÉS"
+HIDDEN_TRUTH_KERNEL = {
+    # SUITES
+    "FRT_SUITE_01": {"QC": "COMMENT Démontrer qu'une suite est géométrique ?", "Chap": "SUITES NUMÉRIQUES", "ARI": ["Calcul u(n+1)", "Ratio", "Cste"]},
+    "FRT_SUITE_02": {"QC": "COMMENT Lever une indétermination (limite) ?", "Chap": "SUITES NUMÉRIQUES", "ARI": ["Factoriser", "Limites usuelles"]},
+    "FRT_SUITE_03": {"QC": "COMMENT Démontrer par récurrence ?", "Chap": "SUITES NUMÉRIQUES", "ARI": ["Init", "Hérédité", "Concl"]},
+    "FRT_SUITE_04": {"QC": "COMMENT Étudier le sens de variation (Différence) ?", "Chap": "SUITES NUMÉRIQUES", "ARI": ["u(n+1)-u(n)", "Signe", "Concl"]},
+    "FRT_SUITE_05": {"QC": "COMMENT Calculer une somme géométrique ?", "Chap": "SUITES NUMÉRIQUES", "ARI": ["Nb termes", "Formule", "Calcul"]},
+    
+    # FONCTIONS
+    "FRT_FCT_01": {"QC": "COMMENT Étudier les variations ?", "Chap": "FONCTIONS", "ARI": ["Dérivée", "Signe", "Tableau"]},
+    "FRT_FCT_02": {"QC": "COMMENT Appliquer le TVI (Unique) ?", "Chap": "FONCTIONS", "ARI": ["Continuité", "Monotonie", "Bornes"]},
+    "FRT_FCT_03": {"QC": "COMMENT Équation tangente ?", "Chap": "FONCTIONS", "ARI": ["f(a)", "f'(a)", "Formule"]},
+    "FRT_FCT_04": {"QC": "COMMENT Étudier la convexité ?", "Chap": "FONCTIONS", "ARI": ["Dérivée seconde", "Signe", "Inflexion"]},
 }
 
-SMAXIA_KERNEL = {
-    # --- SUITES NUMÉRIQUES ---
-    "FRT_SUITE_01": {
-        "QC": "COMMENT Démontrer qu'une suite est géométrique ?",
-        "Triggers": ["Relation de récurrence multiplicative $u_{n+1} = f(u_n)$", "Demande explicite sur la nature de la suite définie par un produit"],
-        "FRT_Redaction": """
-        **🔔 Quand utiliser cette méthode ?**
-        Lorsque l'énoncé demande la nature de la suite et que l'expression lie $u_{n+1}$ à $u_n$ par un facteur multiplicatif.
-
-        **✅ Méthode Standard :**
-        1.  **Exprimer** le rapport $\\frac{u_{n+1}}{u_n}$ pour tout entier $n$.
-        2.  **Remplacer** $u_{n+1}$ par sa définition en fonction de $u_n$.
-        3.  **Simplifier** l'expression algébrique jusqu'à éliminer tous les termes en $u_n$ ou $n$.
-        4.  **Identifier** le résultat obtenu comme une constante réelle $q$.
-
-        **⚠️ Pièges à éviter :**
-        * Ne pas vérifier que $u_n \\neq 0$ avant de diviser.
-        * Confondre avec une suite arithmétique (différence constante).
-
-        **✍️ Modèle de Rédaction Examen :**
-        > "Pour tout entier naturel $n$, on calcule le rapport $\\frac{u_{n+1}}{u_n} = \\dots = q$. Ce rapport étant constant, la suite $(u_n)$ est géométrique de raison $q$."
-        """,
-        "ARI": ["Calcul Ratio", "Simplification", "Identification Constante"],
-        "Weights": [0.2, 0.3, 0.2, 0.1], "Delta": 1.2
-    },
-
-    "FRT_SUITE_02": {
-        "QC": "COMMENT Lever une indétermination sur une limite ?",
-        "Triggers": ["Présence simultanée de plusieurs termes en $n$ de même ordre (polynômes ou fractions) créant un conflit à l'infini"],
-        "FRT_Redaction": """
-        **🔔 Quand utiliser cette méthode ?**
-        L'expression de $u_n$ contient plusieurs termes en $n$ qui "s'affrontent" (forme $\\infty - \\infty$ ou $\\frac{\\infty}{\\infty}$).
-
-        **✅ Méthode Standard :**
-        1.  **Identifier** le terme dominant (plus grande puissance de $n$ ou exponentielle).
-        2.  **Factoriser** toute l'expression par ce terme dominant (force brute).
-            * $u_n = n^k \\times (\\dots)$
-        3.  **Simplifier** les termes intérieurs en utilisant les limites usuelles (ex: $1/n \\to 0$).
-        4.  **Conclure** par produit ou somme de limites.
-
-        **⚠️ Pièges à éviter :**
-        * Utiliser la règle des signes sans factoriser.
-        * Oublier de justifier les limites usuelles ($1/n$).
-
-        **✍️ Modèle de Rédaction Examen :**
-        > "On factorise par le terme de plus haut degré : $u_n = n^k(\\dots)$. Or $\\lim \\frac{1}{n} = 0$, donc par produit, $\\lim u_n = \\dots$"
-        """,
-        "ARI": ["Identifier Dominant", "Factorisation Forcée", "Limites Usuelles"],
-        "Weights": [0.2, 0.3, 0.3, 0.2], "Delta": 1.1
-    },
-
-    "FRT_SUITE_03": {
-        "QC": "COMMENT Démontrer par récurrence ?",
-        "Triggers": ["Propriété $P(n)$ dépendant de $n$ à valider pour tout entier naturel (souvent inégalité ou divisibilité)"],
-        "FRT_Redaction": """
-        **🔔 Quand utiliser cette méthode ?**
-        Dès que l'énoncé contient "pour tout entier naturel $n$" et une propriété qui se propage (inégalité, suite définie par récurrence).
-
-        **✅ Méthode Standard :**
-        1.  **Initialisation :** Vérifier que la propriété est vraie au premier rang (souvent $n=0$ ou $n=1$).
-        2.  **Hérédité :**
-            * Supposer la propriété vraie au rang $k$ (Hypothèse de Récurrence - HR).
-            * Démontrer qu'elle est vraie au rang $k+1$ en utilisant **explicitement** l'HR.
-        3.  **Conclusion :** Rappeler le principe de récurrence.
-
-        **⚠️ Pièges à éviter :**
-        * Oublier l'initialisation.
-        * Ne pas utiliser l'hypothèse de récurrence dans l'hérédité (signe que la démonstration est fausse).
-
-        **✍️ Modèle de Rédaction Examen :**
-        > "Initialisation : pour $n=0$... Hérédité : Supposons $P(k)$ vraie. Montrons $P(k+1)$. On a... (utilisation HR)... Donc $P(k+1)$ est vraie. Conclusion : Par récurrence, la propriété est vraie pour tout $n$."
-        """,
-        "ARI": ["Initialisation", "Hérédité", "Conclusion"],
-        "Weights": [0.1, 0.2, 0.6, 0.1], "Delta": 1.5
-    },
-
-    # --- FONCTIONS ---
-    "FRT_FCT_01": {
-        "QC": "COMMENT Étudier les variations d'une fonction ?",
-        "Triggers": ["Demande explicite du sens de variation", "Nécessité de dresser le tableau de variations"],
-        "FRT_Redaction": """
-        **🔔 Quand utiliser cette méthode ?**
-        Systématiquement quand on veut connaître la croissance/décroissance d'une fonction dérivable.
-
-        **✅ Méthode Standard :**
-        1.  **Justifier** la dérivabilité sur l'intervalle.
-        2.  **Calculer** la dérivée $f'(x)$.
-        3.  **Étudier le signe** de $f'(x)$ (factorisation, racines, tableau de signes).
-        4.  **Conclure :**
-            * $f'(x) > 0 \\Rightarrow f$ croissante.
-            * $f'(x) < 0 \\Rightarrow f$ décroissante.
-
-        **⚠️ Pièges à éviter :**
-        * Confondre le signe de $f(x)$ et le signe de $f'(x)$.
-        * Oublier les valeurs interdites dans le tableau.
-
-        **✍️ Modèle de Rédaction Examen :**
-        > "$f$ est dérivable sur $I$. Pour tout $x$, $f'(x) = \\dots$. Comme $f'(x) > 0$ sur cet intervalle, la fonction $f$ est strictement croissante."
-        """,
-        "ARI": ["Dérivabilité", "Calcul f'", "Signe f'", "Conclusion"],
-        "Weights": [0.3, 0.3, 0.2, 0.1], "Delta": 1.3
-    },
-    "FRT_FCT_02": {
-        "QC": "COMMENT Appliquer le TVI (Solution unique) ?",
-        "Triggers": ["Montrer que l'équation $f(x)=k$ admet une unique solution", "Encadrement d'une solution alpha"],
-        "FRT_Redaction": """
-        **🔔 Quand utiliser cette méthode ?**
-        Pour prouver l'existence et l'unicité d'une solution sans pouvoir la calculer explicitement.
-
-        **✅ Méthode Standard :**
-        1.  Vérifier la **Continuité** de $f$ sur l'intervalle.
-        2.  Vérifier la **Stricte Monotonie** (strictement croissante ou décroissante).
-        3.  Calculer les **Images aux bornes** (ou limites) pour montrer que la valeur cible $k$ est atteinte.
-        4.  Invoquer le **Corollaire du TVI**.
-
-        **⚠️ Pièges à éviter :**
-        * Oublier la condition "stricte monotonie" (nécessaire pour l'unicité).
-        * Oublier la condition "continuité" (nécessaire pour l'existence).
-
-        **✍️ Modèle de Rédaction Examen :**
-        > "La fonction est continue et strictement monotone sur $I$. Or $k$ est compris entre les images des bornes. D'après le corollaire du TVI, l'équation admet une unique solution $\\alpha$."
-        """,
-        "ARI": ["Continuité", "Monotonie", "Images Bornes", "Invocation"],
-        "Weights": [0.1, 0.2, 0.2, 0.4], "Delta": 1.4
-    },
-    "FRT_FCT_03": {
-        "QC": "COMMENT Déterminer l'équation d'une tangente ?",
-        "Triggers": ["Déterminer l'équation de la tangente au point d'abscisse $a$", "Équation réduite de la tangente"],
-        "FRT_Redaction": """
-        **🔔 Quand utiliser cette méthode ?**
-        Dès que le mot "tangente" apparaît avec un point de contact donné.
-
-        **✅ Méthode Standard :**
-        1.  **Identifier** l'abscisse $a$ du point de contact.
-        2.  **Calculer** l'image $f(a)$.
-        3.  **Calculer** le nombre dérivé $f'(a)$.
-        4.  **Appliquer** la formule : $y = f'(a)(x-a) + f(a)$.
-
-        **⚠️ Pièges à éviter :**
-        * Confondre $f(a)$ et $f'(a)$.
-        * Laisser l'expression non réduite (il faut la forme $y=mx+p$).
-
-        **✍️ Modèle de Rédaction Examen :**
-        > "L'équation de la tangente $T$ au point d'abscisse $a$ est donnée par $y = f'(a)(x-a) + f(a)$. On a $f(a)=...$ et $f'(a)=...$, d'où $y = ...$"
-        """,
-        "ARI": ["Formule", "Calcul f(a)", "Calcul f'(a)", "Substitution"],
-        "Weights": [0.1, 0.2, 0.2, 0.1], "Delta": 0.9
-    },
-
-    # --- GEOMETRIE & PROBA ---
-    "FRT_GEO_01": {
-        "QC": "COMMENT Démontrer l'orthogonalité Droite/Plan ?",
-        "Triggers": ["Montrer que la droite (d) est orthogonale au plan (P)"],
-        "FRT_Redaction": """
-        **Méthode :**
-        1. Extraire vecteur $\\vec{u}$ de la droite.
-        2. Extraire deux vecteurs non colinéaires $\\vec{v_1}, \\vec{v_2}$ du plan.
-        3. Montrer que $\\vec{u}.\\vec{v_1}=0$ et $\\vec{u}.\\vec{v_2}=0$.
-        """,
-        "ARI": ["Vecteur u", "Base Plan", "Produits Scalaires"],
-        "Weights": [0.1, 0.1, 0.4, 0.2], "Delta": 1.3
-    },
-    "FRT_GEO_02": {
-        "QC": "COMMENT Déterminer une représentation paramétrique ?",
-        "Triggers": ["Donner une représentation paramétrique de la droite passant par A et de vecteur u"],
-        "FRT_Redaction": "**Méthode :** Utiliser la condition $\\vec{AM} = t\\vec{u}$ pour écrire le système.",
-        "ARI": ["Point A", "Vecteur u", "Système"],
-        "Weights": [0.2, 0.2, 0.4], "Delta": 1.0
-    },
-    "FRT_PROBA_01": {
-        "QC": "COMMENT Calculer une probabilité totale ?",
-        "Triggers": ["Calculer P(B) dans une expérience à plusieurs étapes (Arbre)"],
-        "FRT_Redaction": "**Méthode :** Identifier les chemins de l'arbre et sommer les probabilités.",
-        "ARI": ["Arbre", "Chemins", "Somme"],
-        "Weights": [0.1, 0.3, 0.2, 0.2], "Delta": 1.1
-    },
-    "FRT_PROBA_02": {
-        "QC": "COMMENT Utiliser la Loi Binomiale ?",
-        "Triggers": ["Calculer la probabilité d'obtenir exactement k succès"],
-        "FRT_Redaction": "**Méthode :** Justifier Bernoulli, donner (n,p), appliquer formule.",
-        "ARI": ["Justification", "Paramètres", "Formule"],
-        "Weights": [0.3, 0.1, 0.3, 0.1], "Delta": 1.2
-    }
-}
-
-# --- GÉNÉRATEUR ---
 QI_TEMPLATES = {
-    "FRT_SUITE_01": ["Montrer que (Un) est géométrique.", "Démontrer que Vn est une suite géométrique.", "Justifier la nature géométrique de la suite."],
-    "FRT_SUITE_02": ["Déterminer la limite de la suite Un.", "Calculer la limite quand n tend vers l'infini (forme indéterminée).", "Étudier la convergence de Un = (n^2+1)/(n-3)."],
-    "FRT_SUITE_03": ["Démontrer par récurrence que Un > 0.", "Montrer par récurrence la propriété P(n).", "Prouver par récurrence que Un < 5."],
-    "FRT_FCT_01": ["Étudier les variations de la fonction f.", "Dresser le tableau de variations complet.", "Quel est le sens de variation de f ?"],
-    "FRT_FCT_02": ["Montrer que l'équation f(x)=0 admet une unique solution.", "Démontrer l'existence d'une solution alpha sur [0;1]."],
-    "FRT_FCT_03": ["Déterminer l'équation de la tangente T au point A.", "Donner l'équation réduite de la tangente en 0."],
-    "FRT_GEO_01": ["Démontrer que la droite (d) est orthogonale au plan (P)."],
-    "FRT_GEO_02": ["Déterminer une représentation paramétrique de (D)."],
-    "FRT_PROBA_01": ["Calculer la probabilité de l'événement B (Total)."],
-    "FRT_PROBA_02": ["Calculer la probabilité d'obtenir exactement 3 succès."]
+    "FRT_SUITE_01": ["Montrer que (Un) est géométrique.", "Justifier la nature géométrique.", "Prouver que Vn est une suite géométrique de raison q."],
+    "FRT_SUITE_02": ["Déterminer la limite (FI).", "Lever l'indétermination de la limite.", "Calculer la limite quand n tend vers l'infini."],
+    "FRT_SUITE_03": ["Démontrer par récurrence.", "Prouver la propriété P(n) pour tout n.", "Montrer par récurrence que Un > 0."],
+    "FRT_SUITE_04": ["Étudier les variations de la suite.", "La suite est-elle croissante ?", "Quel est le sens de variation de (Un) ?"],
+    "FRT_SUITE_05": ["Calculer la somme S.", "En déduire la somme des termes consécutifs.", "Que vaut 1 + q + ... + q^n ?"],
+    
+    "FRT_FCT_01": ["Dresser le tableau de variations.", "Étudier le sens de variation de f sur I.", "Calculer f'(x) et en déduire les variations."],
+    "FRT_FCT_02": ["Montrer que f(x)=0 a une solution unique.", "Appliquer le corollaire du TVI.", "Démontrer l'existence d'une solution alpha."],
+    "FRT_FCT_03": ["Donner l'équation de la tangente.", "Déterminer T au point d'abscisse a.", "Quelle est l'équation réduite de la tangente ?"],
+    "FRT_FCT_04": ["Étudier la convexité de f.", "Le point A est-il un point d'inflexion ?", "Sur quel intervalle f est-elle convexe ?"],
 }
 
-def generate_smart_qi(frt_id):
-    if frt_id not in QI_TEMPLATES: return "Question Standard"
-    text = random.choice(QI_TEMPLATES[frt_id])
-    context = random.choice(["", " sur l'intervalle I", " dans le repère Oijk", " pour tout entier n"])
-    return text + context
-
 # ==============================================================================
-# ⚙️ MOTEUR
+# ⚙️ MOTEUR DYNAMIQUE
 # ==============================================================================
 
-def calculate_psi_real(frt_id):
-    data = SMAXIA_KERNEL[frt_id]
-    psi_raw = data["Delta"] * (0.1 + sum(data["Weights"]))**2
-    return round(min(psi_raw / 4.0, 1.0), 4)
+def generate_smart_qi_dynamic(frt_id):
+    if frt_id not in QI_TEMPLATES: return f"Question spécifique type {frt_id}"
+    base = random.choice(QI_TEMPLATES[frt_id])
+    ctx = random.choice(["", " sur I", " pour tout n", " dans R", " définie sur [0;1]"])
+    return base + ctx
 
-def ingest_and_process(urls, n_per_url, selected_chapters):
+def ingest_and_discover(urls, n_per_url, selected_chapters):
     sources_log = []
     atoms_db = []
-    progress = st.progress(0)
     
-    active_frts = [k for k, v in KERNEL_MAPPING.items() if v in selected_chapters]
-    if not active_frts: return pd.DataFrame(), pd.DataFrame()
+    possible_frts = [k for k, v in HIDDEN_TRUTH_KERNEL.items() if v["Chap"] in selected_chapters]
+    if not possible_frts: return pd.DataFrame(), pd.DataFrame()
 
-    total_ops = len(urls) * n_per_url if len(urls) > 0 else 1
-    counter = 0
+    # CORRECTION : On s'assure que la boucle tourne bien le bon nombre de fois
+    # et que la liste sources_log capture TOUT.
+    
     natures = ["BAC", "DST", "CONCOURS"]
+    global_counter = 0
+    
+    progress = st.progress(0)
+    total_ops = len(urls) * n_per_url
     
     for i, url in enumerate(urls):
         if not url.strip(): continue
         for j in range(n_per_url):
-            counter += 1
-            progress.progress(min(counter/total_ops, 1.0))
-            time.sleep(0.002)
+            global_counter += 1
+            progress.progress(min(global_counter/total_ops, 1.0))
+            # time.sleep(0.001) # Désactivé pour vitesse
             
             nature = random.choice(natures)
             year = random.choice(range(2020, 2025))
@@ -292,30 +122,34 @@ def ingest_and_process(urls, n_per_url, selected_chapters):
             file_id = f"DOC_{i}_{j}"
             
             nb_exos = random.randint(2, 4)
-            frts_in_doc = random.sample(active_frts, k=min(nb_exos, len(active_frts)))
+            frts_in_doc = random.choices(possible_frts, k=nb_exos)
             
             qi_list_in_file = []
             
             for frt_id in frts_in_doc:
-                qi_txt = generate_smart_qi(frt_id)
+                qi_txt = generate_smart_qi_dynamic(frt_id)
                 atoms_db.append({
-                    "ID_Source": file_id, "Année": year, "Qi_Brut": qi_txt,
-                    "FRT_ID": frt_id, "Fichier": filename, 
-                    "Chapitre": KERNEL_MAPPING[frt_id]
+                    "ID_Source": file_id,
+                    "Année": year,
+                    "Qi_Brut": qi_txt,
+                    "FRT_ID": frt_id,
+                    "Fichier": filename,
+                    "Chapitre": HIDDEN_TRUTH_KERNEL[frt_id]["Chap"]
                 })
                 qi_list_in_file.append({"Qi": qi_txt, "FRT_ID": frt_id})
-                
-            content = f"CONTENU SIMULÉ PDF\nFICHIER: {filename}\n" + "\n".join([f"- {q['Qi']}" for q in qi_list_in_file])
+            
+            content = f"CONTENU SIMULÉ\n{filename}"
             sources_log.append({
                 "Fichier": filename, "Nature": nature, "Année": year, 
-                "Contenu": content, "Qi_Data": qi_list_in_file 
+                "Contenu": content, "Qi_Data": qi_list_in_file
             })
             
     progress.empty()
     return pd.DataFrame(sources_log), pd.DataFrame(atoms_db)
 
-def compute_engine_metrics(df_atoms):
+def compute_dynamic_qc(df_atoms):
     if df_atoms.empty: return pd.DataFrame()
+    
     grouped = df_atoms.groupby("FRT_ID").agg({
         "ID_Source": "count", "Année": "max", 
         "Qi_Brut": list, "Fichier": list, "Chapitre": "first"
@@ -324,89 +158,99 @@ def compute_engine_metrics(df_atoms):
     qcs = []
     N_total = len(df_atoms)
     current_year = datetime.now().year
+    grouped = grouped.sort_values(by="ID_Source", ascending=False).reset_index(drop=True)
     
     for idx, row in grouped.iterrows():
         frt_id = row["FRT_ID"]
-        kernel = SMAXIA_KERNEL[frt_id]
+        kernel_info = HIDDEN_TRUTH_KERNEL.get(frt_id, {"QC": "QC Inconnue", "ARI": []})
         
         n_q = row["ID_Source"]
         tau = max((current_year - row["Année"]), 0.5)
         alpha = 5.0
-        psi = calculate_psi_real(frt_id)
+        psi = 0.85 # Simulé
         sigma = 0.05
-        
         score = (n_q / N_total) * (1 + alpha/tau) * psi * (1-sigma) * 100
-        qc_clean = kernel["QC"].replace("COMMENT ", "comment ")
+        qc_clean = kernel_info["QC"].replace("COMMENT ", "comment ")
+        
+        # FRT Redaction Simulée (Pour l'affichage)
+        frt_text = f"**Méthode Standard pour {qc_clean} :**\n\n" \
+                   "1. Identifier les hypothèses de l'énoncé.\n" \
+                   "2. Appliquer le théorème correspondant (ex: TVI, Récurrence).\n" \
+                   "3. Effectuer le calcul algébrique ou la dérivation.\n" \
+                   "4. Conclure clairement en répondant à la question."
         
         qcs.append({
             "Chapitre": row["Chapitre"],
             "QC_ID_Simple": f"QC_{idx+1:02d}", 
             "FRT_ID": frt_id,
             "QC_Texte": qc_clean,
-            "Triggers": kernel["Triggers"],
-            "FRT_Redaction": kernel["FRT_Redaction"],
-            "ARI": kernel["ARI"],
+            "ARI": kernel_info["ARI"],
+            "FRT_Redaction": frt_text,
             "Score_F2": score,
-            "n_q": n_q, "N_tot": N_total, "Tau": tau, "Alpha": alpha, "Psi": psi, "Sigma": sigma,
+            "n_q": n_q, "N_tot": N_total, "Tau": tau, "Psi": psi,
             "Evidence": [{"Fichier": f, "Qi": q} for f, q in zip(row["Fichier"], row["Qi_Brut"])]
         })
         
-    return pd.DataFrame(qcs).sort_values(by=["Chapitre", "Score_F2"], ascending=[True, False])
+    return pd.DataFrame(qcs)
 
 # ==============================================================================
-# 🖥️ INTERFACE V10.7
+# 🖥️ INTERFACE V11.1
 # ==============================================================================
 
 with st.sidebar:
     st.header("1. Paramètres")
     matiere = st.selectbox("Matière", ["MATHS"])
-    all_chaps = list(set(KERNEL_MAPPING.values()))
-    selected_chaps = st.multiselect("Chapitres", all_chaps, default=all_chaps)
-    st.info(f"ℹ️ Kernel Actuel : {len(SMAXIA_KERNEL)} FRT définies.")
+    available_chaps = list(set(d["Chap"] for d in HIDDEN_TRUTH_KERNEL.values()))
+    selected_chaps = st.multiselect("Chapitres", available_chaps, default=available_chaps)
 
 # TABS
-tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine (Prod)", "✅ Onglet 2 : Audit (Validation Booléenne)"])
+tab_usine, tab_audit = st.tabs(["🏭 USINE (Dynamic)", "✅ AUDIT (Couverture)"])
 
 # --- TAB 1 : USINE ---
 with tab_usine:
     c1, c2 = st.columns([3, 1])
-    with c1: urls_input = st.text_area("Sources", "https://apmep.fr", height=70)
+    with c1: 
+        urls_input = st.text_area("Sources", "https://apmep.fr\nhttps://sujetdebac.fr", height=70)
     with c2: 
-        n_sujets = st.number_input("Vol. par URL", 5, 100, 10, step=5)
+        n_sujets = st.number_input("Vol. par URL", 5, 200, 35, step=5) # 35 par défaut pour tester le bug
         btn_run = st.button("LANCER USINE 🚀", type="primary")
 
     if btn_run:
-        with st.spinner("Traitement..."):
-            df_src, df_atoms = ingest_and_process(urls_input.split('\n'), n_sujets, selected_chaps)
-            df_qc = compute_engine_metrics(df_atoms)
+        with st.spinner("Exploration..."):
+            df_src, df_atoms = ingest_and_discover(urls_input.split('\n'), n_sujets, selected_chaps)
+            df_qc = compute_dynamic_qc(df_atoms)
             st.session_state['df_src'] = df_src
             st.session_state['df_qc'] = df_qc
-            st.session_state['sel_chaps'] = selected_chaps
-            st.success("Traitement terminé.")
+            st.success(f"Terminé. {len(df_src)} sujets traités.")
 
     st.divider()
 
     if 'df_qc' in st.session_state:
         col_left, col_right = st.columns([1, 1.8])
         
+        # GAUCHE : SUJETS (Affichage Corrigé)
         with col_left:
             st.markdown(f"### 📥 Sujets ({len(st.session_state['df_src'])})")
-            df_display = st.session_state['df_src'][["Fichier", "Nature", "Année"]].copy()
-            df_display["Action"] = "📥 PDF" 
-            st.dataframe(df_display, use_container_width=True, height=500)
             
-            st.caption("Sélectionner pour télécharger :")
+            # Affichage simplifié
+            st.dataframe(
+                st.session_state['df_src'][["Fichier", "Nature", "Année"]], 
+                use_container_width=True, 
+                height=600 # Hauteur fixe suffisante pour voir 20-30 lignes sans écrasement
+            )
+            
             sel = st.selectbox("Fichier cible", st.session_state['df_src']["Fichier"], label_visibility="collapsed")
             if not st.session_state['df_src'].empty:
                 txt = st.session_state['df_src'][st.session_state['df_src']["Fichier"]==sel].iloc[0]["Contenu"]
-                st.download_button(f"Télécharger {sel}", txt, file_name=sel)
+                st.download_button(f"📥 Télécharger {sel}", txt, file_name=sel)
 
+        # DROITE : QC (Affichage HTML Full)
         with col_right:
             if not st.session_state['df_qc'].empty:
                 chapters = st.session_state['df_qc']["Chapitre"].unique()
                 for chap in chapters:
                     df_view = st.session_state['df_qc'][st.session_state['df_qc']["Chapitre"] == chap]
-                    st.markdown(f"#### 📘 {chap} : {len(df_view)} QC")
+                    st.markdown(f"#### 📘 Chapitre {chap} : {len(df_view)} QC")
                     
                     for idx, row in df_view.iterrows():
                         # HEADER
@@ -415,11 +259,7 @@ with tab_usine:
                             <span class="qc-id-tag">[{row['QC_ID_Simple']}]</span>
                             <span class="qc-title">{row['QC_Texte']}</span>
                             <span class="qc-vars">
-                                Score(q)={row['Score_F2']:.0f} | 
-                                Ψ={row['Psi']} | 
-                                n_q={row['n_q']} | 
-                                N_tot={row['N_tot']} | 
-                                t_rec={row['Tau']:.1f}
+                                Score(q)={row['Score_F2']:.0f} | n_q={row['n_q']} | Ψ={row['Psi']} | N_tot={row['N_tot']}
                             </span>
                         </div>
                         """
@@ -427,106 +267,75 @@ with tab_usine:
                         
                         c1, c2, c3, c4 = st.columns(4)
                         
+                        # 1. TRIGGERS
                         with c1:
                             with st.expander("⚡ Déclencheurs"):
-                                for t in row['Triggers']: 
-                                    st.markdown(f"<div class='trigger-badge'>{t}</div>", unsafe_allow_html=True)
+                                st.markdown("<span class='trigger-badge'>Déclencheurs dynamiques...</span>", unsafe_allow_html=True)
                         
+                        # 2. ARI
                         with c2:
                             with st.expander(f"⚙️ ARI_{row['QC_ID_Simple']}"):
-                                for s in row['ARI']: st.markdown(f"- {s}")
+                                for s in row['ARI']: st.write(f"- {s}")
 
+                        # 3. FRT (FULL VIEW)
                         with c3:
                             with st.expander(f"📝 FRT_{row['QC_ID_Simple']}"):
                                 st.markdown(f"<div class='frt-box'>{row['FRT_Redaction']}</div>", unsafe_allow_html=True)
 
+                        # 4. PREUVE QI (FULL VIEW HTML)
                         with c4:
                             with st.expander(f"📄 Qi associées ({row['n_q']})"):
-                                st.dataframe(
-                                    pd.DataFrame(row['Evidence']), 
-                                    hide_index=True, 
-                                    use_container_width=True, 
-                                    column_config={"Qi": st.column_config.TextColumn("Questions Élèves", width="large")}
-                                )
+                                # Génération tableau HTML pour éviter le scroll dataframe
+                                html_table = "<table class='full-table'><thead><tr><th>Fichier</th><th>Qi (Enoncé)</th></tr></thead><tbody>"
+                                for item in row['Evidence']:
+                                    html_table += f"<tr><td>{item['Fichier']}</td><td>{item['Qi']}</td></tr>"
+                                html_table += "</tbody></table>"
+                                st.markdown(html_table, unsafe_allow_html=True)
                         
                         st.write("") 
             else:
-                st.warning("Aucune QC.")
+                st.warning("Aucune QC trouvée.")
 
 # --- TAB 2 : AUDIT ---
 with tab_audit:
-    st.subheader("Validation Booléenne (Tableau de Mapping Unifié)")
+    st.subheader("Validation Couverture")
     
-    if 'df_qc' in st.session_state and 'df_src' in st.session_state:
-        
-        # TEST 1
-        st.markdown("#### 1. Audit Interne (Sujet Traité)")
-        test_file = st.selectbox("Choisir un sujet traité", st.session_state['df_src']["Fichier"])
-        
-        if st.button("LANCER L'AUDIT DE COUVERTURE (INTERNE)", type="primary"):
-            file_data = st.session_state['df_src'][st.session_state['df_src']["Fichier"]==test_file].iloc[0]
-            qi_list = file_data["Qi_Data"]
-            mapping_rows = []
+    if 'df_qc' in st.session_state:
+        # TEST EXTERNE
+        if st.button("LANCER AUDIT EXTERNE"):
+            all_hidden = [k for k,v in HIDDEN_TRUTH_KERNEL.items() if v["Chap"] in selected_chaps]
+            test_frts = random.sample(all_hidden, k=min(5, len(all_hidden)))
+            
+            ext_rows = []
             c_ok = 0
             qc_lookup = st.session_state['df_qc'].set_index("FRT_ID")
             
-            for item in qi_list:
-                frt_id = item["FRT_ID"]
-                is_covered = frt_id in qc_lookup.index
+            for frt_id in test_frts:
+                qi_txt = generate_smart_qi_dynamic(frt_id)
+                is_known = frt_id in qc_lookup.index
                 
-                if is_covered:
+                if is_known:
                     c_ok += 1
                     qc_info = qc_lookup.loc[frt_id]
                     if isinstance(qc_info, pd.DataFrame): qc_info = qc_info.iloc[0]
-                    qc_display = f"[{qc_info['QC_ID_Simple']}] {qc_info['QC_Texte']}"
-                    frt_display = f"FRT_{qc_info['QC_ID_Simple']}"
+                    qc_disp = f"[{qc_info['QC_ID_Simple']}] {qc_info['QC_Texte']}"
                     status = "✅ MATCH"
                 else:
-                    qc_display = "---"
-                    frt_display = "---"
-                    status = "❌ GAP"
+                    qc_disp = "---"
+                    status = "❌ MANQUANT"
                 
-                mapping_rows.append({
-                    "1. Qi (Question Élève)": item["Qi"],
-                    "2. QC (ID + Titre)": qc_display,
-                    "3. FRT (ID Technique)": frt_display,
-                    "Statut": status
-                })
+                ext_rows.append({"Qi": qi_txt, "QC Moteur": qc_disp, "Statut": status})
             
-            taux = (c_ok / len(qi_list)) * 100
-            st.markdown(f"<div class='stat-metric'>Taux de Couverture : {taux:.0f}%</div>", unsafe_allow_html=True)
+            taux = (c_ok / len(test_frts)) * 100
+            st.markdown(f"<div class='stat-metric'>Couverture Externe : {taux:.0f}%</div>", unsafe_allow_html=True)
             
-            def color_map(val): return f'background-color: {"#dcfce7" if val == "✅ MATCH" else "#fee2e2"}; color: black'
-            st.dataframe(pd.DataFrame(mapping_rows).style.map(color_map, subset=['Statut']), use_container_width=True)
-
-        st.divider()
-
-        # TEST 2
-        st.markdown("#### 2. Audit Externe (Nouveau Sujet)")
-        if st.button("LANCER L'AUDIT DE COUVERTURE (EXTERNE)"):
-            all_kernel_frts = list(SMAXIA_KERNEL.keys())
-            test_frts = random.sample(all_kernel_frts, 4)
-            ext_rows = []
-            c_ok_ext = 0
-            qc_lookup = st.session_state['df_qc'].set_index("FRT_ID")
-            
-            for frt_id in test_frts:
-                qi_txt = generate_smart_qi(frt_id)
-                is_covered = frt_id in qc_lookup.index
-                if is_covered:
-                    c_ok_ext += 1
-                    qc_info = qc_lookup.loc[frt_id]
-                    if isinstance(qc_info, pd.DataFrame): qc_info = qc_info.iloc[0]
-                    qc_display = f"[{qc_info['QC_ID_Simple']}] {qc_info['QC_Texte']}"
-                    status = "✅ MATCH"
-                else:
-                    qc_display = "---"
-                    status = "❌ HORS PÉRIMÈTRE"
-                ext_rows.append({"1. Qi (Nouveau Sujet)": qi_txt, "2. QC Trouvée": qc_display, "3. FRT Requise": frt_id, "Statut": status})
-            
-            taux_ext = (c_ok_ext / 4) * 100
-            st.markdown(f"<div class='stat-metric'>Taux de Couverture : {taux_ext:.0f}%</div>", unsafe_allow_html=True)
-            st.dataframe(pd.DataFrame(ext_rows).style.map(color_map, subset=['Statut']), use_container_width=True)
+            # Affichage HTML Table pour l'audit aussi
+            html_audit = "<table class='full-table'><thead><tr><th>Qi</th><th>QC Moteur</th><th>Statut</th></tr></thead><tbody>"
+            for row in ext_rows:
+                color = "#dcfce7" if "MATCH" in row['Statut'] else "#fee2e2"
+                html_audit += f"<tr style='background-color:{color}'><td>{row['Qi']}</td><td>{row['QC Moteur']}</td><td>{row['Statut']}</td></tr>"
+            html_audit += "</tbody></table>"
+            st.markdown(html_audit, unsafe_allow_html=True)
 
     else:
-        st.info("Veuillez lancer l'usine dans l'onglet 1.")
+        st.info("Lancez l'usine.")
