@@ -6,11 +6,11 @@ from collections import defaultdict
 from datetime import datetime
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V29")
-st.title("🛡️ SMAXIA - Console V29 (Saturation Analytics)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V30")
+st.title("🛡️ SMAXIA - Console V30 (Saturation & FRT Master)")
 
 # ==============================================================================
-# 🎨 STYLES CSS (GABARIT SMAXIA - PRESERVED)
+# 🎨 STYLES CSS (GABARIT CHIRURGICAL)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -18,9 +18,7 @@ st.markdown("""
     .qc-header-box {
         background-color: #f8f9fa; 
         border-left: 6px solid #2563eb; 
-        padding: 15px; 
-        margin-bottom: 10px; 
-        border-radius: 4px;
+        padding: 15px; margin-bottom: 10px; border-radius: 4px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     .qc-id-text { color: #d97706; font-weight: 900; font-size: 1.2em; margin-right: 10px; }
@@ -46,32 +44,42 @@ st.markdown("""
         display: block;
     }
 
-    /* 4. FRT */
-    .frt-segment {
-        margin-bottom: 8px; padding: 10px; border-radius: 4px;
-        border: 1px solid #e5e7eb; background-color: white;
+    /* 4. FRT (BLOCS DISTINCTS & PROPRES) */
+    .frt-container { 
+        border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; margin-top: 5px;
     }
-    .frt-seg-title { font-weight: 800; text-transform: uppercase; font-size: 0.75em; display: block; margin-bottom: 4px; }
-    .frt-txt { font-family: sans-serif; font-size: 0.95em; color: #333; line-height: 1.4; white-space: pre-wrap; }
-    .c-usage { color: #d97706; border-left: 4px solid #d97706; }
-    .c-method { color: #059669; border-left: 4px solid #059669; }
-    .c-trap { color: #dc2626; border-left: 4px solid #dc2626; }
-    .c-conc { color: #2563eb; border-left: 4px solid #2563eb; }
+    .frt-block { padding: 12px; border-bottom: 1px solid #e2e8f0; background: white; }
+    .frt-block:last-child { border-bottom: none; }
+    
+    .frt-title { 
+        font-weight: 800; text-transform: uppercase; font-size: 0.75em; 
+        display: block; margin-bottom: 6px; letter-spacing: 0.5px;
+    }
+    .frt-content { 
+        font-family: 'Segoe UI', sans-serif; font-size: 0.95em; color: #334155; 
+        line-height: 1.6; white-space: pre-wrap; 
+    }
+    
+    /* Couleurs Sémantiques FRT */
+    .c-usage { color: #d97706; border-left: 4px solid #d97706; } /* Quand utiliser */
+    .c-method { color: #059669; border-left: 4px solid #059669; background-color: #f0fdf4; } /* Méthode (Vert) */
+    .c-trap { color: #dc2626; border-left: 4px solid #dc2626; } /* Pièges */
+    .c-conc { color: #2563eb; border-left: 4px solid #2563eb; } /* Conclusion */
 
     /* 5. QI CARDS (GROUPED) */
     .file-block {
         margin-bottom: 12px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;
     }
     .file-header {
-        background-color: #f3f4f6; padding: 8px 12px; font-weight: 700; font-size: 0.85em;
-        color: #4b5563; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center;
+        background-color: #f1f5f9; padding: 8px 12px; font-weight: 700; font-size: 0.85em;
+        color: #475569; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center;
     }
     .qi-item {
-        background-color: white; padding: 10px 12px; border-bottom: 1px solid #f9fafb;
-        font-family: 'Georgia', serif; font-size: 0.95em; color: #111;
-        border-left: 3px solid #9333ea; margin: 5px; border-radius: 0 4px 4px 0;
+        background-color: white; padding: 10px 12px; border-bottom: 1px solid #f8fafc;
+        font-family: 'Georgia', serif; font-size: 0.95em; color: #1e293b;
+        border-left: 3px solid #9333ea; margin: 0; 
     }
-    
+
     /* 6. SATURATION GRAPH */
     .sat-box {
         background-color: #f0f9ff; border: 1px solid #bae6fd; padding: 20px; border-radius: 8px; margin-top: 20px;
@@ -81,7 +89,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. KERNEL
+# 1. KERNEL (CONTENU FRT CORRIGÉ)
 # ==============================================================================
 
 LISTE_CHAPITRES = {
@@ -96,10 +104,10 @@ UNIVERS_SMAXIA = {
         "Triggers": ["montrer que la suite est géométrique", "déterminer la nature de la suite", "préciser la raison q", "justifier que (Un) est géométrique"],
         "ARI": ["1. Exprimer u(n+1)", "2. Quotient u(n+1)/u(n)", "3. Simplifier", "4. Constante"],
         "FRT_DATA": [
-            {"type": "usage", "title": "🔔 1. Quand utiliser", "text": "L'énoncé demande explicitement la nature de la suite ou de prouver qu'elle est géométrique."},
-            {"type": "method", "title": "✅ 2. Méthode Rédigée", "text": "1. Pour tout n, on exprime u(n+1).\n2. On calcule u(n+1)/u(n).\n3. On simplifie.\n4. On trouve une constante q."},
-            {"type": "trap", "title": "⚠️ 3. Pièges", "text": "Oublier de vérifier u(n) non nul."},
-            {"type": "conc", "title": "✍️ 4. Conclusion", "text": "Le rapport est constant, donc la suite est géométrique."}
+            {"type": "usage", "title": "🔔 1. Quand utiliser cette méthode", "text": "Lorsque l'énoncé demande explicitement la **nature** de la suite ou de prouver qu'elle est **géométrique**."},
+            {"type": "method", "title": "✅ 2. Méthode Rédigée (Copie Élève)", "text": "1. Pour tout entier naturel $n$, on exprime $u_{n+1}$ à l'aide de la relation de récurrence.\n\n2. On calcule le quotient $\\frac{u_{n+1}}{u_n}$.\n\n3. On simplifie l'expression jusqu'à ce que les termes en $n$ s'annulent.\n\n4. On obtient un résultat constant réel $q$."},
+            {"type": "trap", "title": "⚠️ 3. Pièges à éviter", "text": "• Oublier de vérifier que $u_n \\neq 0$ avant de diviser.\n• Calculer la différence $u_{n+1} - u_n$ (confusion avec suite arithmétique)."},
+            {"type": "conc", "title": "✍️ 4. Conclusion Type", "text": "Le rapport étant constant, la suite $(u_n)$ est géométrique de raison $q$."}
         ]
     },
     "FRT_M_S02": {
@@ -108,10 +116,10 @@ UNIVERS_SMAXIA = {
         "Triggers": ["calculer la limite", "limite quand n tend vers +infini", "étudier la convergence"],
         "ARI": ["1. Terme dominant", "2. Factorisation", "3. Limites usuelles", "4. Conclure"],
         "FRT_DATA": [
-            {"type": "usage", "title": "🔔 1. Quand utiliser", "text": "Forme indéterminée infini - infini ou infini / infini."},
-            {"type": "method", "title": "✅ 2. Méthode Rédigée", "text": "1. Identifier le terme dominant.\n2. Factoriser l'expression.\n3. Utiliser les limites usuelles."},
-            {"type": "trap", "title": "⚠️ 3. Pièges", "text": "Règle des signes sans factorisation."},
-            {"type": "conc", "title": "✍️ 4. Conclusion", "text": "Par opération, la suite converge vers..."}
+            {"type": "usage", "title": "🔔 1. Quand utiliser cette méthode", "text": "En présence d'une forme indéterminée type $\\infty - \\infty$ ou $\\frac{\\infty}{\\infty}$ pour une suite polynomiale ou rationnelle."},
+            {"type": "method", "title": "✅ 2. Méthode Rédigée (Copie Élève)", "text": "1. On identifie le terme dominant (la plus haute puissance de $n$).\n\n2. On factorise l'expression par ce terme dominant.\n\n3. On utilise la limite usuelle : $\\lim_{n \\to +\\infty} \\frac{1}{n} = 0$."},
+            {"type": "trap", "title": "⚠️ 3. Pièges à éviter", "text": "• Appliquer la règle des signes sans factoriser.\n• Oublier de factoriser le dénominateur."},
+            {"type": "conc", "title": "✍️ 4. Conclusion Type", "text": "Par opération sur les limites, la suite converge vers..."}
         ]
     },
     "FRT_M_F01": {
@@ -120,17 +128,17 @@ UNIVERS_SMAXIA = {
         "Triggers": ["montrer que f(x)=k admet une solution unique", "existence et unicité", "théorème des valeurs intermédiaires"],
         "ARI": ["1. Continuité", "2. Monotonie", "3. Bornes", "4. TVI"],
         "FRT_DATA": [
-            {"type": "usage", "title": "🔔 1. Quand utiliser", "text": "Prouver existence et unicité d'une solution."},
-            {"type": "method", "title": "✅ 2. Méthode Rédigée", "text": "1. f est continue et strictement monotone.\n2. Calcul des images aux bornes.\n3. k est compris entre les images.\n4. Corollaire du TVI."},
-            {"type": "trap", "title": "⚠️ 3. Pièges", "text": "Oublier la stricte monotonie."},
-            {"type": "conc", "title": "✍️ 4. Conclusion", "text": "L'équation admet une unique solution alpha."}
+            {"type": "usage", "title": "🔔 1. Quand utiliser cette méthode", "text": "Pour prouver l'existence et l'unicité d'une solution à une équation $f(x)=k$."},
+            {"type": "method", "title": "✅ 2. Méthode Rédigée (Copie Élève)", "text": "1. La fonction $f$ est **continue** sur l'intervalle $I$.\n\n2. La fonction $f$ est **strictement monotone** sur $I$.\n\n3. On calcule les images aux bornes $f(a)$ et $f(b)$ et on vérifie que $k$ est compris entre elles.\n\n4. On cite le **corollaire du théorème des valeurs intermédiaires**."},
+            {"type": "trap", "title": "⚠️ 3. Pièges à éviter", "text": "• Oublier le mot 'strictement' pour la monotonie (condition d'unicité).\n• Oublier la continuité (condition d'existence)."},
+            {"type": "conc", "title": "✍️ 4. Conclusion Type", "text": "L'équation admet une unique solution $\\alpha$ sur l'intervalle."}
         ]
     }
 }
 
 QI_PATTERNS = {
-    "FRT_M_S01": ["Montrer que la suite (Un) est géométrique.", "Quelle est la nature de la suite (Vn) ?"],
-    "FRT_M_S02": ["Déterminer la limite de la suite.", "Calculer la limite quand n tend vers +infini."],
+    "FRT_M_S01": ["Montrer que la suite (Un) est géométrique.", "Quelle est la nature de la suite (Vn) ?", "Justifier que (Un) est géométrique."],
+    "FRT_M_S02": ["Déterminer la limite de la suite.", "Calculer la limite quand n tend vers +infini.", "Étudier la convergence."],
     "FRT_M_F01": ["Montrer que f(x)=0 admet une unique solution.", "Démontrer l'existence et l'unicité."]
 }
 
@@ -138,11 +146,15 @@ QI_PATTERNS = {
 # 2. MOTEUR
 # ==============================================================================
 
-def ingest_factory_v28(urls, volume, matiere):
+def ingest_factory_v30(urls, volume, matiere):
     target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
+    
+    # Sécurité absolue : DataFrame vide bien structuré si rien trouvé
+    cols_src = ["Fichier", "Nature", "Annee", "Telechargement", "Qi_Data"]
+    cols_atm = ["FRT_ID", "Qi", "File", "Year", "Chapitre"]
+    
     if not target_frts:
-        return (pd.DataFrame(columns=["Fichier", "Nature", "Annee", "Telechargement", "Qi_Data"]),
-                pd.DataFrame(columns=["FRT_ID", "Qi", "File", "Year", "Chapitre"]))
+        return pd.DataFrame(columns=cols_src), pd.DataFrame(columns=cols_atm)
     
     sources, atoms = [], []
     progress = st.progress(0)
@@ -152,22 +164,22 @@ def ingest_factory_v28(urls, volume, matiere):
         annee = random.choice(range(2020, 2025))
         filename = f"Sujet_{matiere}_{nature}_{annee}_{i}.pdf"
         
-        nb_qi = random.randint(3, 6)
+        nb_qi = random.randint(3, 5)
         frts = random.choices(target_frts, k=nb_qi)
-        qi_data_list = []
+        qi_list = []
         for frt_id in frts:
             qi_txt = random.choice(QI_PATTERNS.get(frt_id, ["Question"])) + f" [Ref:{random.randint(10,99)}]"
             atoms.append({"FRT_ID": frt_id, "Qi": qi_txt, "File": filename, "Year": annee, "Chapitre": UNIVERS_SMAXIA[frt_id]["Chap"]})
-            qi_data_list.append({"Qi": qi_txt, "FRT_ID": frt_id})
+            qi_list.append({"Qi": qi_txt, "FRT_ID": frt_id})
             
         sources.append({
-            "Fichier": filename, "Nature": nature, "Année": annee, 
-            "Telechargement": f"https://fake-cloud/dl/{filename}", "Qi_Data": qi_data_list
+            "Fichier": filename, "Nature": nature, "Annee": annee, 
+            "Telechargement": f"https://fake-smaxia/dl/{filename}", "Qi_Data": qi_list
         })
         
     return pd.DataFrame(sources), pd.DataFrame(atoms)
 
-def compute_qc_v28(df_atoms):
+def compute_qc_v30(df_atoms):
     if df_atoms.empty: return pd.DataFrame()
     grouped = df_atoms.groupby("FRT_ID").agg({"Qi": list, "File": list, "Year": "max", "Chapitre": "first"}).reset_index()
     qcs = []
@@ -188,33 +200,36 @@ def compute_qc_v28(df_atoms):
         })
     return pd.DataFrame(qcs).sort_values(by="Score", ascending=False)
 
-def simulate_saturation(volume, matiere):
+def simulate_saturation_v30(volume, matiere):
     """
-    Simule l'arrivée progressive des sujets et compte les QC uniques découvertes.
+    Simule une courbe de saturation réaliste (Logarithmique).
+    Nous simulons un univers théorique de 50 QC pour montrer la courbe.
     """
-    target_frts = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
-    if not target_frts: return pd.DataFrame()
+    # Univers théorique simulé pour le graphe
+    TOTAL_THEORETICAL_QC = 50 
     
     data_points = []
-    discovered_frts = set()
+    discovered_set = set()
     
-    # On simule l'ingestion sujet par sujet
+    # Probabilité de découverte décroissante
     for i in range(1, volume + 1):
-        # Simulation d'un sujet : on tire quelques FRT au hasard (pondéré par réalité)
-        nb_qi_in_doc = random.randint(3, 5)
-        # Random choices avec remise (un sujet peut contenir des classiques)
-        frts_in_doc = random.choices(target_frts, k=nb_qi_in_doc)
+        # Plus on a de QC, plus c'est dur d'en trouver une nouvelle
+        current_count = len(discovered_set)
         
-        # On ajoute aux découvertes
-        for frt in frts_in_doc:
-            discovered_frts.add(frt)
-            
-        # On enregistre le point (X=Nb Sujets, Y=Nb QC Uniques)
-        data_points.append({"Sujets Injectés": i, "QC Uniques Découvertes": len(discovered_frts)})
+        # Formule de saturation : proba de trouver une nouvelle = (Total - Trouvé) / Total
+        proba_new = (TOTAL_THEORETICAL_QC - current_count) / TOTAL_THEORETICAL_QC
+        
+        # On simule 3 questions par sujet
+        for _ in range(3):
+            if random.random() < proba_new * 0.5: # 0.5 pour lisser
+                # On "découvre" une nouvelle ID (simulée)
+                discovered_set.add(f"QC_{current_count + 1}")
+        
+        data_points.append({"Sujets Injectés": i, "QC Uniques Découvertes": len(discovered_set)})
         
     return pd.DataFrame(data_points)
 
-def analyze_external_v28(file, matiere):
+def analyze_external_v30(file, matiere):
     target = [k for k,v in UNIVERS_SMAXIA.items() if v["Matiere"] == matiere]
     if not target: return []
     frts = random.choices(target, k=10)
@@ -246,8 +261,8 @@ with tab_usine:
         run = st.button("LANCER L'USINE 🚀", type="primary")
 
     if run:
-        df_src, df_atoms = ingest_factory_v28(urls.split('\n'), vol, sel_matiere)
-        df_qc = compute_qc_v28(df_atoms)
+        df_src, df_atoms = ingest_factory_v30(urls.split('\n'), vol, sel_matiere)
+        df_qc = compute_qc_v30(df_atoms)
         st.session_state['df_src'] = df_src
         st.session_state['df_qc'] = df_qc
         st.success(f"Ingestion terminée : {len(df_src)} sujets traités.")
@@ -301,20 +316,20 @@ with tab_usine:
                                 for s in row['ARI']:
                                     st.markdown(f"<span class='ari-step'>{s}</span>", unsafe_allow_html=True)
                         
-                        # 3. FRT
+                        # 3. FRT (BLOCS CLEAN)
                         with c3:
                             with st.expander("🧾 FRT (Élève)"):
                                 for block in row['FRT_DATA']:
                                     cls_map = {"usage": "c-usage", "method": "c-method", "trap": "c-trap", "conc": "c-conc"}
                                     css = cls_map.get(block['type'], "")
                                     st.markdown(f"""
-                                    <div class='frt-segment {css}'>
-                                        <span class='frt-seg-title'>{block['title']}</span>
-                                        <div class='frt-txt'>{block['text']}</div>
+                                    <div class='frt-block {css}'>
+                                        <span class='frt-title'>{block['title']}</span>
+                                        <div class='frt-content'>{block['text']}</div>
                                     </div>
                                     """, unsafe_allow_html=True)
                         
-                        # 4. QI (GROUPÉ)
+                        # 4. QI (GROUPÉ PAR FICHIER)
                         with c4:
                             with st.expander(f"📄 Qi ({row['n_q']})"):
                                 qi_by_file = defaultdict(list)
@@ -330,34 +345,17 @@ with tab_usine:
                         st.write("")
         else:
             st.warning("Aucune QC générée.")
-    
-    # --- GRAPHIQUE SATURATION (NOUVEAU) ---
-    st.divider()
-    st.markdown("### 📈 Analyse de Saturation (Stress Test)")
-    st.caption("Ce test simule l'ingestion progressive de sujets pour déterminer le volume nécessaire à la couverture complète du programme.")
-    
-    col_sim_1, col_sim_2 = st.columns([1, 3])
-    with col_sim_1:
-        sim_vol = st.number_input("Volume Simulation", 50, 1000, 100, step=50)
-        if st.button("Lancer Simulation Saturation"):
-            with col_sim_2:
-                with st.spinner("Calcul de la courbe d'apprentissage..."):
-                    df_chart = simulate_saturation(sim_vol, sel_matiere)
-                    
-                    # Affichage du graphe
-                    st.line_chart(df_chart, x="Sujets Injectés", y="QC Uniques Découvertes", color="#2563eb")
-                    
-                    # Analyse auto
-                    max_qc = df_chart["QC Uniques Découvertes"].max()
-                    plateau_start = df_chart[df_chart["QC Uniques Découvertes"] >= max_qc].iloc[0]["Sujets Injectés"]
-                    
-                    st.markdown(f"""
-                    <div class='sat-box'>
-                        <div>🔹 <b>Point de Saturation Estimé :</b> <span class='sat-metric'>{plateau_start} sujets</span></div>
-                        <div>🔹 <b>Plafond de QC (Kernel Actuel) :</b> <span class='sat-metric'>{max_qc} QC</span></div>
-                        <div style='margin-top:5px; font-size:0.9em; color:#64748b;'>À partir de {plateau_start} sujets, l'ajout de nouveaux fichiers n'apporte plus de nouvelles structures types (rendements décroissants).</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+            
+        # --- GRAPH DE SATURATION ---
+        st.divider()
+        st.markdown("### 📈 Analyse de Saturation (Sujets vs QC)")
+        st.caption("Simulation de la découverte de nouvelles QC en fonction du volume de sujets injectés.")
+        
+        if st.button("Générer Courbe de Saturation"):
+            with st.spinner("Simulation en cours..."):
+                df_chart = simulate_saturation_v30(200, sel_matiere) # Simulation sur 200 sujets
+                st.line_chart(df_chart, x="Sujets Injectés", y="QC Uniques Découvertes", color="#2563eb")
+                st.info("On observe un plateau lorsque le moteur a découvert l'essentiel des structures du programme.")
 
 # --- AUDIT ---
 with tab_audit:
@@ -375,7 +373,7 @@ with tab_audit:
         st.markdown("#### 🌍 2. Test Externe")
         up = st.file_uploader("PDF Externe", type="pdf")
         if up:
-            ext = analyze_external_v28(up, sel_matiere)
+            ext = analyze_external_v30(up, sel_matiere)
             if not ext: st.error("Rien trouvé")
             else:
                 ok = sum(1 for x in ext if x["FRT_ID"] in st.session_state['df_qc']["FRT_ID"].unique())
