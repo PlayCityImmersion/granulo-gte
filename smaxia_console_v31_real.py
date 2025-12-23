@@ -229,7 +229,7 @@ with tab_usine:
                                 triggers = row['Triggers'] if isinstance(row['Triggers'], list) else []
                                 if triggers:
                                     for t in triggers:
-                                        st.markdown(f"<span class='trigger-item'>"{t}"</span>", unsafe_allow_html=True)
+                                        st.markdown(f"<span class='trigger-item'>\"{t}\"</span>", unsafe_allow_html=True)
                                 else:
                                     st.caption("Aucun déclencheur identifié")
                         
@@ -257,8 +257,8 @@ with tab_usine:
                                 for f, qlist in qi_by_file.items():
                                     html += f"<div class='file-block'><div class='file-header'>📁 {f}</div>"
                                     for q in qlist[:5]:  # Max 5 par fichier
-                                        q_display = q[:100] + "…" if len(q) > 100 else q
-                                        html += f"<div class='qi-item'>"{q_display}"</div>"
+                                        q_display = q[:100] + "..." if len(q) > 100 else q
+                                        html += f"<div class='qi-item'>\"{q_display}\"</div>"
                                     if len(qlist) > 5:
                                         html += f"<div class='qi-item'>… +{len(qlist)-5} autres</div>"
                                     html += "</div>"
