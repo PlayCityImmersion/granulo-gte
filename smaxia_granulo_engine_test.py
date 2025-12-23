@@ -1,181 +1,199 @@
-# ============================================================
-# SMAXIA – Granulo Test Engine (GTE)
-# Phase : TEST / R&D
-# Aucun hardcoding de QC
-# ============================================================
+# ==============================================================================
+# SMAXIA – GRANULO ENGINE (TEST)
+# F1 → F8 – ENVIRONNEMENT DE VALIDATION SCIENTIFIQUE
+# Aucun affichage UI – Aucun hardcoding QC
+# ==============================================================================
 
-import requests
+import math
 import hashlib
-import time
 from collections import defaultdict
-from math import sqrt
+from datetime import datetime
 
-# -----------------------------
-# 1. RÉCUPÉRATION DES SUJETS
-# -----------------------------
+# ==============================================================================
+# STRUCTURES DE BASE
+# ==============================================================================
 
-def fetch_subjects_from_urls(urls: list, volume: int):
+class Qi:
     """
-    Télécharge les PDFs depuis les URLs fournies
-    (TEST : ici on simule le contenu texte)
+    Question individuelle extraite d’un sujet
     """
-    subjects = []
-
-    for i in range(volume):
-        url = urls[i % len(urls)]
-        content = f"SUJET_SIMULÉ_{i}_FROM_{url}"
-
-        subject_hash = hashlib.sha256(content.encode()).hexdigest()
-
-        subjects.append({
-            "id": f"S{i}",
-            "source": url,
-            "year": 2020 + (i % 5),
-            "nature": ["INTERRO", "DST", "BAC"][i % 3],
-            "raw_text": content,
-            "hash": subject_hash,
-            "timestamp": time.time()
-        })
-
-    return subjects
+    def __init__(self, texte, chapitre, source, annee):
+        self.texte = texte
+        self.chapitre = chapitre
+        self.source = source
+        self.annee = annee
 
 
-# -----------------------------
-# 2. EXTRACTION DES Qi
-# -----------------------------
-
-def extract_qi(subject):
+class QC:
     """
-    TEST : on découpe artificiellement un sujet en Qi
+    Question Clé construite par agrégation de Qi
     """
-    qi_list = []
+    def __init__(self, signature):
+        self.signature = signature          # invariant ARI
+        self.qis = []                        # Qi associées
+        self.chapitre = None
+        self.creation_year = datetime.now().year
 
-    for i in range(3):
-        qi_list.append({
-            "qi_id": f"{subject['id']}_QI{i}",
-            "text": f"Question {i} du {subject['id']}",
-            "subject_id": subject["id"]
-        })
-
-    return qi_list
+    def add_qi(self, qi: Qi):
+        self.qis.append(qi)
+        self.chapitre = qi.chapitre
 
 
-# -----------------------------
-# 3. EXTRACTION ARI (STRUCTURE)
-# -----------------------------
+# ==============================================================================
+# F1 – EXTRACTION DES INVARIANTS ARI
+# ==============================================================================
 
-def extract_ari(qi):
+def F1_extract_ari(qi: Qi):
     """
-    ARI = structure de résolution (TEST SIMPLIFIÉ)
+    Transforme une Qi en signature ARI minimale.
+    Ici : version test → normalisation lexicale + patterns cognitifs.
     """
-    return [
-        {"step": "identifier_terme_dominant", "T_j": 0.3},
-        {"step": "factoriser", "T_j": 0.25},
-        {"step": "limites_usuelles", "T_j": 0.2}
-    ]
+    txt = qi.texte.lower()
+
+    ari = []
+    if "limite" in txt:
+        ari.append("LIMIT")
+    if "dériver" in txt or "variation" in txt:
+        ari.append("VARIATION")
+    if "suite" in txt:
+        ari.append("SUITE")
+    if "convergence" in txt:
+        ari.append("CONVERGENCE")
+    if "démontrer" in txt or "montrer" in txt:
+        ari.append("PROUVER")
+
+    if not ari:
+        ari.append("AUTRE")
+
+    return tuple(sorted(set(ari)))
 
 
-# -----------------------------
-# 4. F1 – PSI
-# -----------------------------
+# ==============================================================================
+# F2 – SIGNATURE CANONIQUE (HASH)
+# ==============================================================================
 
-def compute_psi(ari_steps):
-    epsilon = 0.01
-    delta_c = len(ari_steps)
-
-    sum_T = sum(step["T_j"] for step in ari_steps)
-    psi_raw = delta_c * (epsilon + sum_T) ** 2
-
-    return round(min(1.0, psi_raw), 2)
-
-
-# -----------------------------
-# 5. SIMILARITÉ σ (COSINUS)
-# -----------------------------
-
-def cosine_similarity(a, b):
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = sqrt(sum(x * x for x in a))
-    norm_b = sqrt(sum(y * y for y in b))
-
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-
-    return dot / (norm_a * norm_b)
-
-
-# -----------------------------
-# 6. F2 – SCORE GRANULO
-# -----------------------------
-
-def compute_score(n_q, N_tot, psi, t_rec, sigmas):
-    density = n_q / max(1, N_tot)
-    recency = 1 / (1 + t_rec)
-
-    redundancy_penalty = 1
-    for s in sigmas:
-        redundancy_penalty *= (1 - s)
-
-    score = density * recency * psi * redundancy_penalty * 1000
-    return int(score)
-
-
-# -----------------------------
-# 7. GÉNÉRATION DES QC
-# -----------------------------
-
-def generate_qc(qi_list):
+def F2_signature(ari_tuple):
     """
-    Groupement par structure ARI
+    Génère une signature unique et stable à partir de l’ARI
     """
-    qc_map = defaultdict(list)
+    raw = "|".join(ari_tuple)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+# ==============================================================================
+# F3 – AGRÉGATION Qi → QC
+# ==============================================================================
+
+def F3_cluster_qi(qi_list):
+    """
+    Regroupe les Qi par signature ARI
+    """
+    qc_map = {}
 
     for qi in qi_list:
-        ari = extract_ari(qi)
-        signature = tuple(step["step"] for step in ari)
-        qc_map[signature].append((qi, ari))
+        ari = F1_extract_ari(qi)
+        sig = F2_signature(ari)
 
-    qc_list = []
+        if sig not in qc_map:
+            qc_map[sig] = QC(signature=sig)
 
-    for idx, (sig, items) in enumerate(qc_map.items(), start=1):
-        ari_steps = items[0][1]
-        psi = compute_psi(ari_steps)
+        qc_map[sig].add_qi(qi)
 
-        n_q = len(items)
-        N_tot = len(qi_list)
-        t_rec = 1.0
+    return list(qc_map.values())
 
-        sigmas = []  # TEST : pas encore de redondance inter-QC
-        score = compute_score(n_q, N_tot, psi, t_rec, sigmas)
 
-        qc_list.append({
-            "qc_id": f"QC-{idx:02d}",
-            "ari": ari_steps,
-            "psi": psi,
-            "n_q": n_q,
-            "N_tot": N_tot,
-            "t_rec": t_rec,
-            "score": score,
-            "qi": [q[0] for q in items]
+# ==============================================================================
+# F4 – SCORE PREDICTIF Ψ(q)
+# ==============================================================================
+
+def F4_score_psi(qc: QC):
+    """
+    Ψ(q) – poids prédictif de la QC
+    Version test : croissance logarithmique contrôlée
+    """
+    n_q = len(qc.qis)
+    return round(min(1.0, math.log(1 + n_q) / 3), 2)
+
+
+# ==============================================================================
+# F5 – DENSITÉ RELATIVE
+# ==============================================================================
+
+def F5_density(qc: QC, total_qi):
+    return len(qc.qis) / max(1, total_qi)
+
+
+# ==============================================================================
+# F6 – RÉCENCE
+# ==============================================================================
+
+def F6_recency(qc: QC):
+    age = datetime.now().year - qc.creation_year
+    return max(1.0, 1 + age)
+
+
+# ==============================================================================
+# F7 – SCORE GRANULO GLOBAL
+# ==============================================================================
+
+def F7_score_granulo(qc: QC, total_qi):
+    psi = F4_score_psi(qc)
+    density = F5_density(qc, total_qi)
+    recency = F6_recency(qc)
+
+    score = 100 * psi * density * (1 / recency)
+    return round(score, 1)
+
+
+# ==============================================================================
+# F8 – SATURATION (CONVERGENCE QC)
+# ==============================================================================
+
+def F8_saturation_curve(qc_counts):
+    """
+    qc_counts : liste cumulative [QC après N sujets]
+    """
+    saturation = []
+    prev = 0
+
+    for n, qc in enumerate(qc_counts, start=1):
+        delta = qc - prev
+        saturation.append({
+            "N_sujets": n,
+            "QC_total": qc,
+            "Δ_QC": delta
+        })
+        prev = qc
+
+    return saturation
+
+
+# ==============================================================================
+# PIPELINE GLOBAL – APPEL UNIQUE
+# ==============================================================================
+
+def run_granulo_engine(qi_list):
+    """
+    Point d’entrée unique du moteur Granulo (TEST)
+    """
+    total_qi = len(qi_list)
+
+    # F3
+    qcs = F3_cluster_qi(qi_list)
+
+    # Calcul scores
+    results = []
+    for qc in qcs:
+        results.append({
+            "QC_signature": qc.signature,
+            "Chapitre": qc.chapitre,
+            "n_q": len(qc.qis),
+            "Ψ": F4_score_psi(qc),
+            "Score(q)": F7_score_granulo(qc, total_qi),
+            "Qi": qc.qis
         })
 
-    return qc_list
-
-
-# -----------------------------
-# 8. POINT D’ENTRÉE UI
-# -----------------------------
-
-def run_granulo_factory(urls, volume, classe, matiere, chapitres):
-    subjects = fetch_subjects_from_urls(urls, volume)
-
-    all_qi = []
-    for subject in subjects:
-        all_qi.extend(extract_qi(subject))
-
-    qc_list = generate_qc(all_qi)
-
     return {
-        "subjects": subjects,
-        "qc": qc_list
+        "QC": results,
+        "QC_count": len(qcs)
     }
