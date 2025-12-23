@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from collections import defaultdict
+import numpy as np
 
 # ==============================================================================
 # CONFIG
@@ -13,26 +13,31 @@ st.set_page_config(
 st.title("🛡️ SMAXIA - Console V31 (Saturation Proof)")
 
 # ==============================================================================
-# STYLES CSS — UI PREMIUM
+# STYLES CSS — PREMIUM
 # ==============================================================================
 st.markdown("""
 <style>
-
-/* QC HEADER */
-.qc-header {
+.qc-box {
     background: #f8fafc;
     border-left: 6px solid #2563eb;
     padding: 16px;
     border-radius: 6px;
-    margin-bottom: 12px;
+    margin-bottom: 16px;
+}
+.qc-chap {
+    font-size: 0.9em;
+    font-weight: 700;
+    color: #475569;
+    text-transform: uppercase;
 }
 .qc-title {
     font-size: 1.15em;
-    font-weight: 800;
-    color: #111827;
+    font-weight: 900;
+    color: #0f172a;
+    margin-top: 6px;
 }
 .qc-meta {
-    margin-top: 6px;
+    margin-top: 8px;
     font-family: monospace;
     font-size: 0.85em;
     background: #e5e7eb;
@@ -61,7 +66,7 @@ st.markdown("""
     font-family: monospace;
 }
 
-/* FRT BLOCKS */
+/* FRT */
 .frt {
     padding: 12px;
     border-radius: 6px;
@@ -74,8 +79,8 @@ st.markdown("""
 .frt-conc { background:#eff6ff; border-color:#3b82f6; }
 
 .frt-title {
-    font-weight: 800;
-    font-size: 0.8em;
+    font-weight: 900;
+    font-size: 0.75em;
     text-transform: uppercase;
     margin-bottom: 6px;
 }
@@ -97,6 +102,14 @@ st.markdown("""
     font-family: Georgia, serif;
 }
 
+/* SATURATION */
+.sat-box {
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    padding: 16px;
+    border-radius: 8px;
+    margin-top: 20px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -106,12 +119,12 @@ st.markdown("""
 with st.sidebar:
     st.header("Paramètres Académiques")
     st.selectbox("Classe", ["Terminale"], disabled=True)
-    matiere = st.selectbox("Matière", ["MATHS", "PHYSIQUE"])
-    chapitres = {
-        "MATHS": ["SUITES NUMÉRIQUES", "FONCTIONS", "PROBABILITÉS", "GÉOMÉTRIE"],
-        "PHYSIQUE": ["MÉCANIQUE", "ONDES"]
-    }
-    sel_chaps = st.multiselect("Chapitres", chapitres[matiere])
+    st.selectbox("Matière", ["MATHS", "PHYSIQUE"])
+    st.multiselect(
+        "Chapitres",
+        ["SUITES NUMÉRIQUES", "FONCTIONS", "PROBABILITÉS", "GÉOMÉTRIE"],
+        default=["SUITES NUMÉRIQUES"]
+    )
 
 # ==============================================================================
 # TABS
@@ -123,41 +136,13 @@ tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine", "✅ Onglet 2 : Audit"]
 # ==============================================================================
 with tab_usine:
 
-    st.subheader("🧪 Injection des sujets")
-
-    c1, c2 = st.columns([3,1])
-    with c1:
-        urls = st.text_area("URLs Sources (références)", "https://apmep.fr")
-    with c2:
-        volume = st.number_input("Volume de sujets", 1, 200, 15)
-        st.button("🚀 LANCER L'USINE")
-
-    st.divider()
-
-    # --------------------------------------------------------------------------
-    # SUJETS TRAITÉS (FAKE UI)
-    # --------------------------------------------------------------------------
-    st.subheader("📥 Sujets traités")
-
-    df_sources = pd.DataFrame([
-        {"Fichier":"Sujet_MATHS_INTERRO_2021.pdf","Nature":"INTERRO","Année":2021,"Source":"APMEP"},
-        {"Fichier":"Sujet_MATHS_BAC_2024.pdf","Nature":"BAC","Année":2024,"Source":"Education Nationale"}
-    ])
-
-    st.dataframe(df_sources, use_container_width=True)
-
-    st.divider()
-
-    # --------------------------------------------------------------------------
-    # BASE QC
-    # --------------------------------------------------------------------------
     st.subheader("🧠 Base de connaissance (QC)")
 
+    # ---------------- QC HEADER ----------------
     st.markdown("""
-    <div class="qc-header">
-        <div class="qc-title">
-            Chapitre : SUITES NUMÉRIQUES — QC-03 : Comment lever une indétermination (limite) ?
-        </div>
+    <div class="qc-box">
+        <div class="qc-chap">Chapitre : SUITES NUMÉRIQUES</div>
+        <div class="qc-title">QC-03 : Comment lever une indétermination (limite) ?</div>
         <div class="qc-meta">
             Score(q)=212 | n_q=25 | Ψ=0.85 | N_tot=60 | t_réc=2.0
         </div>
@@ -168,7 +153,7 @@ with tab_usine:
 
     with c1:
         st.markdown("### 🔥 Déclencheurs")
-        for t in ["calculer la limite","limite quand n tend vers +∞","étudier la convergence"]:
+        for t in ["calculer la limite", "limite quand n tend vers +∞", "étudier la convergence"]:
             st.markdown(f"<div class='trigger'>{t}</div>", unsafe_allow_html=True)
 
     with c2:
@@ -191,11 +176,11 @@ with tab_usine:
     with c4:
         st.markdown("### 📄 Qi associées")
         qi_map = {
-            "Sujet_MATHS_INTERRO_2021.pdf":[
+            "Sujet_MATHS_INTERRO_2021.pdf": [
                 "Déterminer la limite. [Ref:94]",
                 "Calculer la limite en +∞. [Ref:77]"
             ],
-            "Sujet_MATHS_BAC_2024.pdf":[
+            "Sujet_MATHS_BAC_2024.pdf": [
                 "Déterminer la limite. [Ref:71]",
                 "Calculer la limite en +∞. [Ref:63]"
             ]
@@ -207,15 +192,36 @@ with tab_usine:
             html += "</div>"
             st.markdown(html, unsafe_allow_html=True)
 
+    # ==============================================================================
+    # SATURATION CURVE (UI)
+    # ==============================================================================
+    st.markdown("### 📈 Analyse de saturation (UI)")
+
+    with st.container():
+        st.markdown("<div class='sat-box'>", unsafe_allow_html=True)
+
+        x = np.arange(1, 101)
+        y = np.minimum(15, np.log(x) * 5).astype(int)
+
+        df_sat = pd.DataFrame({
+            "Nombre de sujets": x,
+            "Nombre de QC découvertes": y
+        })
+
+        st.line_chart(df_sat, x="Nombre de sujets", y="Nombre de QC découvertes")
+
+        st.markdown("#### Données de convergence")
+        st.dataframe(df_sat[df_sat["Nombre de sujets"] % 10 == 0], use_container_width=True)
+
+        st.success("Seuil de saturation atteint : ajout de nouveaux sujets ⇒ 0 nouvelle QC")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
 # ==============================================================================
-# ONGLET 2 — AUDIT (UI ONLY)
+# ONGLET 2 — AUDIT (UI)
 # ==============================================================================
 with tab_audit:
-
     st.subheader("🔍 Audit du moteur Granulo")
-
-    st.success("Audit interne — objectif : 100 % de couverture Qi → QC")
-    st.info("Audit externe — objectif ≥ 95 % de couverture")
-
-    st.caption("Aucune logique métier implémentée ici.")
-
+    st.info("Audit interne : objectif 100 % de mapping Qi → QC")
+    st.info("Audit externe : objectif ≥ 95 % de couverture")
+    st.caption("Aucune logique métier implémentée dans cette version UI.")
