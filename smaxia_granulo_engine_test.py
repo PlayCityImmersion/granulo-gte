@@ -1,131 +1,125 @@
 # smaxia_granulo_engine_test.py
-# ENGINE SAFE PATCH — ne doit jamais casser l'UI à l'import
-
-from __future__ import annotations
-from pathlib import Path
-from typing import List, Dict, Any, Optional
-import re
-import hashlib
-
 import requests
+from bs4 import BeautifulSoup
+import pdfplumber
+import re
+import io
+from collections import defaultdict
+from difflib import SequenceMatcher
+import time
 
-BASE_URLS = ["https://www.apmep.fr/-Terminale-"]
+# --------------------------------------------------
+# CONFIG
+# --------------------------------------------------
+HEADERS = {"User-Agent": "SMAXIA-GRANULO/1.0"}
+MATH_KEYWORDS = [
+    "suite", "limite", "converge", "diverge", "u_n", "n tend vers",
+    "croissante", "décroissante", "récurrence"
+]
 
-WORKDIR = Path("data_granulo")
-PDF_DIR = WORKDIR / "pdfs"
-PDF_DIR.mkdir(parents=True, exist_ok=True)
+# --------------------------------------------------
+# UTILS
+# --------------------------------------------------
+def similar(a, b):
+    return SequenceMatcher(None, a, b).ratio()
 
-PDF_HREF_RE = re.compile(r'href=["\']([^"\']+\.pdf)["\']', re.IGNORECASE)
+def extract_pdf_links(url):
+    html = requests.get(url, headers=HEADERS, timeout=10).text
+    soup = BeautifulSoup(html, "html.parser")
+    return list(set(a["href"] for a in soup.find_all("a", href=True) if a["href"].lower().endswith(".pdf")))
 
-CHAPTER_KEYWORDS = ["suite", "suites", "récurrence", "arithmétique", "géométrique", "raison", "terme général", "u_n", "v_n"]
-TRIGGERS = ["calculer", "déterminer", "montrer que", "démontrer", "étudier", "exprimer", "en déduire", "justifier"]
+def download_pdf(url):
+    r = requests.get(url, headers=HEADERS, timeout=20)
+    return io.BytesIO(r.content)
 
+def extract_text_from_pdf(pdf_bytes):
+    text = ""
+    with pdfplumber.open(pdf_bytes) as pdf:
+        for page in pdf.pages:
+            t = page.extract_text()
+            if t:
+                text += "\n" + t
+    return text.lower()
 
-def _absolute_apmep_url(href: str) -> str:
-    if href.startswith("http"):
-        return href
-    if href.startswith("/"):
-        return "https://www.apmep.fr" + href
-    return "https://www.apmep.fr/" + href
-
-
-def scrape_pdf_urls() -> List[str]:
-    pdf_urls = set()
-    for url in BASE_URLS:
-        r = requests.get(url, timeout=20)
-        r.raise_for_status()
-        for m in PDF_HREF_RE.finditer(r.text):
-            pdf_urls.add(_absolute_apmep_url(m.group(1).strip()))
-    return sorted(pdf_urls)
-
-
-def download_pdf(url: str) -> Optional[Path]:
-    h = hashlib.md5(url.encode("utf-8")).hexdigest()
-    pdf_path = PDF_DIR / f"{h}.pdf"
-    if pdf_path.exists() and pdf_path.stat().st_size > 1024:
-        return pdf_path
-
-    r = requests.get(url, timeout=30)
-    if r.status_code != 200 or not r.content:
-        return None
-
-    pdf_path.write_bytes(r.content)
-    if pdf_path.stat().st_size < 1024:
-        return None
-    return pdf_path
-
-
-def extract_text_from_pdf(pdf_path: Path) -> str:
-    # Imports retardés pour éviter ImportError au chargement
-    try:
-        import pdfplumber  # type: ignore
-        texts = []
-        with pdfplumber.open(str(pdf_path)) as pdf:
-            for page in pdf.pages:
-                t = page.extract_text() or ""
-                if t.strip():
-                    texts.append(t)
-        return "\n".join(texts).strip()
-    except Exception:
-        # Fallback PyPDF2 si dispo
-        try:
-            from PyPDF2 import PdfReader  # type: ignore
-            reader = PdfReader(str(pdf_path))
-            texts = []
-            for page in reader.pages:
-                t = page.extract_text() or ""
-                if t.strip():
-                    texts.append(t)
-            return "\n".join(texts).strip()
-        except Exception:
-            return ""
-
-
-def is_suites_numeriques(text: str) -> bool:
-    t = text.lower()
-    return any(k in t for k in CHAPTER_KEYWORDS)
-
-
-def extract_qi(text: str) -> List[str]:
-    lines = [l.strip() for l in text.split("\n") if len(l.strip()) >= 18]
+def extract_qi(text):
+    sentences = re.split(r"[?.!]\s+", text)
     qi = []
-    for l in lines:
-        if re.search(r"(suite|u_n|v_n|récurrence|raison|arithmétique|géométrique)", l, re.IGNORECASE):
-            qi.append(l)
+    for s in sentences:
+        if any(k in s for k in MATH_KEYWORDS) and len(s) > 40:
+            qi.append(s.strip())
     return qi
 
-
-def compute_frt(qc: List[str]) -> Dict[str, Any]:
-    joined = " ".join(qc).lower()
-    triggers = [t for t in TRIGGERS if t in joined]
-    return {
-        "declencheurs": triggers,
-        "ari": list(range(1, len(qc) + 1)),
-        "n_q": len(qc),
-        "score": round(len(triggers) / max(len(qc), 1), 2),
-    }
-
-
-def run_granulo_test() -> List[Dict[str, Any]]:
-    results: List[Dict[str, Any]] = []
-    urls = scrape_pdf_urls()
+# --------------------------------------------------
+# GRANULO CORE
+# --------------------------------------------------
+def granulo_run(urls, max_subjects=20):
+    start = time.time()
+    subjects = []
+    all_qi = []
 
     for url in urls:
-        pdf_path = download_pdf(url)
-        if not pdf_path:
+        try:
+            pdf_links = extract_pdf_links(url)
+        except:
             continue
 
-        text = extract_text_from_pdf(pdf_path)
-        if not text or not is_suites_numeriques(text):
-            continue
+        for link in pdf_links[:max_subjects]:
+            try:
+                pdf_bytes = download_pdf(link)
+                text = extract_text_from_pdf(pdf_bytes)
+                qi = extract_qi(text)
+                if qi:
+                    subjects.append({
+                        "file": link.split("/")[-1],
+                        "source": url,
+                        "qi": qi
+                    })
+                    all_qi.extend(qi)
+            except:
+                continue
 
-        qi = extract_qi(text)
-        if not qi:
-            continue
+    # QC clustering (simple but réel)
+    qc_map = defaultdict(list)
+    for qi in all_qi:
+        assigned = False
+        for qc in qc_map:
+            if similar(qc, qi) > 0.75:
+                qc_map[qc].append(qi)
+                assigned = True
+                break
+        if not assigned:
+            qc_map[qi].append(qi)
 
-        # Regroupement simple : 1 QC = lot de Qi (mode minimal stable)
-        # (On pourra remettre le clustering ensuite, mais d'abord ZÉRO crash)
-        qc = qi[:10]
-        results.append({"qc": qc, "frt": compute_frt(qc)})
+    qc_list = []
+    for i, (qc_label, qis) in enumerate(qc_map.items(), 1):
+        qc_list.append({
+            "qc_id": f"QC-{i:03}",
+            "title": qc_label[:120],
+            "n_q": len(qis),
+            "declencheurs": list(set(re.findall(r"\b\w{6,}\b", qc_label)))[:6],
+            "ari": [
+                "Identifier la suite",
+                "Étudier le comportement",
+                "Utiliser les théorèmes",
+                "Conclure"
+            ],
+            "frt": {
+                "usage": "Étude de suite numérique",
+                "method": "Analyse – théorème – conclusion",
+                "trap": "Confusion convergence/divergence",
+                "conclusion": "Conclusion rigoureuse"
+            },
+            "qi": qis
+        })
 
-    return results
+    return {
+        "subjects": subjects,
+        "qc": qc_list,
+        "audit": {
+            "n_urls": len(urls),
+            "n_subjects": len(subjects),
+            "n_qi": len(all_qi),
+            "n_qc": len(qc_list),
+            "elapsed_s": round(time.time() - start, 2)
+        }
+    }
