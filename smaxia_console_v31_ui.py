@@ -142,4 +142,151 @@ with tab_usine:
     # --------------------------------------------------------------------------
     # ZONE 1 – INJECTION DES SUJETS (INCHANGÉE)
     # --------------------------------------------------------------------------
-    st.sub
+    st.subheader("🧪 Injection des sujets")
+
+    c1, c2 = st.columns([4, 1])
+    with c1:
+        urls = st.text_area(
+            "URLs sources (références)",
+            value="https://apmep.fr",
+            height=80
+        )
+    with c2:
+        volume = st.number_input(
+            "Volume de sujets",
+            min_value=5,
+            max_value=500,
+            value=15,
+            step=5
+        )
+
+        launch = st.button("🚀 LANCER L’USINE")
+
+    if launch:
+        # exécution moteur
+        url_list = [u.strip() for u in urls.split("\n") if u.strip()]
+        with st.spinner("Granulo Test Engine : récupération PDFs → extraction Qi → clustering QC…"):
+            result = run_granulo_test(url_list, int(volume))
+        st.session_state["granulo_result"] = result
+
+    # --------------------------------------------------------------------------
+    # ZONE 2 – TABLEAU DES SUJETS TRAITÉS (ZÉRO HARDCODE)
+    # --------------------------------------------------------------------------
+    st.divider()
+    st.subheader("📥 Sujets traités")
+
+    if "granulo_result" not in st.session_state:
+        st.caption("⚠️ Données affichées uniquement après branchement du moteur réel.")
+        st.dataframe(pd.DataFrame(columns=["Fichier", "Nature", "Année", "Source"]), use_container_width=True)
+    else:
+        df_sujets = pd.DataFrame(st.session_state["granulo_result"]["sujets"])
+        if df_sujets.empty:
+            st.warning("Aucun sujet exploitable récupéré depuis ces URLs (0 PDF traité).")
+            st.dataframe(pd.DataFrame(columns=["Fichier", "Nature", "Année", "Source"]), use_container_width=True)
+        else:
+            st.dataframe(df_sujets, use_container_width=True)
+        st.caption(f"Audit moteur: {st.session_state['granulo_result']['audit']}")
+
+    # --------------------------------------------------------------------------
+    # ZONE 3 – BASE DE CONNAISSANCE (QC) (ZÉRO HARDCODE)
+    # --------------------------------------------------------------------------
+    st.divider()
+    st.subheader("🧠 Base de connaissance (QC)")
+
+    if "granulo_result" not in st.session_state:
+        st.info("Aucune QC affichée tant que le moteur n’a pas produit de résultats.")
+    else:
+        qc_list = st.session_state["granulo_result"]["qc"]
+        if not qc_list:
+            st.warning("0 QC produite : soit 0 Qi extraite, soit filtrage trop strict (Suites).")
+        else:
+            # Afficher la 1ère QC (même layout que scellé)
+            qc = qc_list[0]
+
+            st.markdown(f"""
+            <div class="qc-box">
+                <div class="qc-chap">Chapitre : {qc['chapter']}</div>
+                <div class="qc-title">{qc['qc_id']} : {qc['qc_title']}</div>
+                <div class="qc-meta">
+                    Score(q)={qc['score']} | n_q={qc['n_q']} | Ψ={qc['psi']} | N_tot={qc['n_tot']} | t_réc={qc['t_rec']}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            with c1:
+                st.markdown("### 🔥 Déclencheurs")
+                if qc["triggers"]:
+                    for t in qc["triggers"]:
+                        st.markdown(f"<div class='trigger'>{t}</div>", unsafe_allow_html=True)
+                else:
+                    st.caption("Aucun déclencheur extrait.")
+
+            with c2:
+                st.markdown("### ⚙️ ARI")
+                for s in qc["ari"]:
+                    st.markdown(f"<div class='ari-step'>{s}</div>", unsafe_allow_html=True)
+
+            with c3:
+                st.markdown("### 📘 FRT")
+                frt = qc["frt"]
+                st.markdown(f"<div class='frt frt-usage'><div class='frt-title'>Quand utiliser</div>{frt['usage']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='frt frt-method'><div class='frt-title'>Méthode rédigée</div>{frt['method']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='frt frt-trap'><div class='frt-title'>Pièges</div>{frt['trap']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='frt frt-conc'><div class='frt-title'>Conclusion</div>{frt['conc']}</div>", unsafe_allow_html=True)
+
+            with c4:
+                st.markdown("### 📄 Qi associées")
+                qi_map = qc["qi_by_file"]
+                if not qi_map:
+                    st.caption("Aucune Qi mappée.")
+                else:
+                    for f, qs in qi_map.items():
+                        html = f"<div class='file-box'><div class='file-header'>{f}</div>"
+                        for q in qs[:12]:
+                            html += f"<div class='qi'>{q}</div>"
+                        if len(qs) > 12:
+                            html += f"<div class='qi'>… +{len(qs)-12} autres</div>"
+                        html += "</div>"
+                        st.markdown(html, unsafe_allow_html=True)
+
+    # --------------------------------------------------------------------------
+    # ZONE 4 – COURBE DE SATURATION (ZÉRO HARDCODE)
+    # --------------------------------------------------------------------------
+    st.divider()
+    st.subheader("📈 Analyse de saturation (preuve de complétude)")
+
+    if "granulo_result" not in st.session_state:
+        st.info("Courbe de saturation disponible après exécution du moteur.")
+    else:
+        sat = st.session_state["granulo_result"]["saturation"]
+        df_sat = pd.DataFrame(sat)
+        if df_sat.empty:
+            st.warning("Aucune donnée de saturation (0 sujet traité).")
+        else:
+            st.line_chart(df_sat, x="Nombre de sujets injectés", y="Nombre de QC découvertes")
+            st.dataframe(df_sat, use_container_width=True)
+
+        # message de saturation uniquement si stabilité observée
+        if len(df_sat) >= 5:
+            tail = df_sat["Nombre de QC découvertes"].tail(5).tolist()
+            if len(set(tail)) == 1:
+                st.success("Seuil de saturation probable : derniers sujets ⇒ 0 nouvelle QC")
+            else:
+                st.info("Saturation non atteinte : QC encore en croissance.")
+
+# ==============================================================================
+# ONGLET 2 – AUDIT (structure inchangée + affichage si dispo)
+# ==============================================================================
+with tab_audit:
+    st.subheader("🔍 Audit du moteur Granulo")
+
+    st.info("Audit interne : chaque Qi d’un sujet traité doit mapper vers UNE et UNE SEULE QC (100 %).")
+    st.info("Audit externe : couverture attendue ≥ 95 % sur sujet inconnu.")
+    st.caption("Aucune logique métier implémentée dans cette version UI.")
+
+    if "granulo_result" in st.session_state:
+        st.divider()
+        st.subheader("Résultats moteur (test)")
+        st.json(st.session_state["granulo_result"]["audit"])
