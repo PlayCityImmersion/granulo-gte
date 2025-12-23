@@ -1,205 +1,168 @@
-# ============================================================
-# SMAXIA – Console V31 (Saturation Proof)
-# UI CONTRACTUELLE – SCELLÉE
-# Aucune logique métier Granulo ici
-# ============================================================
-
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
-# 🔌 BRANCHEMENT MOTEUR (TEST)
-from smaxia_granulo_engine_test import run_granulo_factory
-
-# -----------------------------
-# CONFIG GLOBALE
-# -----------------------------
+# =========================================================
+# CONFIG GÉNÉRALE
+# =========================================================
 st.set_page_config(
-    page_title="SMAXIA – Console V31",
-    layout="wide",
+    page_title="SMAXIA - Console V31 (Saturation Proof)",
+    layout="wide"
 )
 
-# -----------------------------
-# SESSION STATE
-# -----------------------------
-if "subjects" not in st.session_state:
-    st.session_state.subjects = []
+st.title("🛡️ SMAXIA - Console V31 (Saturation Proof)")
 
-if "qc" not in st.session_state:
-    st.session_state.qc = []
-
-# -----------------------------
-# SIDEBAR – PARAMÈTRES ACADÉMIQUES
-# -----------------------------
+# =========================================================
+# SIDEBAR – PARAMÈTRES ACADÉMIQUES (FRANCE)
+# =========================================================
 with st.sidebar:
-    st.markdown("## 📘 Paramètres Académiques")
+    st.header("Paramètres académiques")
 
-    classe = st.selectbox("Classe", ["Terminale"], index=0)
+    st.selectbox("Classe", ["Terminale"], disabled=True)
 
-    matiere = st.selectbox(
-        "Matière",
-        ["MATHS", "PHYSIQUE"]
+    matiere = st.selectbox("Matière", ["MATHS", "PHYSIQUE"])
+
+    PROGRAMMES = {
+        "MATHS": ["SUITES NUMÉRIQUES", "FONCTIONS", "PROBABILITÉS", "GÉOMÉTRIE"],
+        "PHYSIQUE": ["MÉCANIQUE", "ONDES", "ÉLECTRICITÉ"]
+    }
+
+    chapitres = st.multiselect(
+        "Chapitres",
+        PROGRAMMES[matiere],
+        default=PROGRAMMES[matiere][:1]
     )
 
-    if matiere == "MATHS":
-        chapitres = st.multiselect(
-            "Chapitres",
-            [
-                "SUITES NUMÉRIQUES",
-                "FONCTIONS",
-                "PROBABILITÉS",
-                "GÉOMÉTRIE"
-            ]
-        )
-    else:
-        chapitres = st.multiselect(
-            "Chapitres",
-            [
-                "MÉCANIQUE",
-                "ONDES",
-                "ÉLECTRICITÉ",
-                "CHIMIE"
-            ]
-        )
-
-# -----------------------------
-# HEADER
-# -----------------------------
-st.markdown("## 🛡️ SMAXIA – Console V31 (Saturation Proof)")
-st.caption("UI contractuelle – aucune logique métier – moteur branché dynamiquement")
-
-# -----------------------------
+# =========================================================
 # ONGLET PRINCIPAL
-# -----------------------------
-tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine", "🧪 Onglet 2 : Audit"])
+# =========================================================
+tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine", "✅ Onglet 2 : Audit"])
 
-# ============================================================
-# ONGLET 1 – USINE
-# ============================================================
+# =========================================================
+# ONGLET 1 — USINE
+# =========================================================
 with tab_usine:
 
-    st.markdown("### 🔌 Injection des sujets")
+    # -------------------------------
+    # INJECTION DES SUJETS
+    # -------------------------------
+    st.subheader("🧪 Injection des sujets")
 
     col1, col2 = st.columns([4, 1])
 
     with col1:
-        urls_input = st.text_area(
+        urls = st.text_area(
             "URLs Sources (références)",
-            value="https://apmep.fr"
+            "https://apmep.fr",
+            height=80
         )
 
     with col2:
         volume = st.number_input(
             "Volume de sujets",
             min_value=1,
-            max_value=200,
+            max_value=500,
             value=15,
             step=1
         )
 
-    # -----------------------------
-    # LANCEMENT USINE
-    # -----------------------------
-    if st.button("🚀 LANCER L’USINE"):
-        urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
+    lancer = st.button("🚀 LANCER L'USINE")
 
-        with st.spinner("Injection et traitement des sujets…"):
-            result = run_granulo_factory(
-                urls=urls,
+    # -------------------------------
+    # APPEL DU MOTEUR (HOOK)
+    # -------------------------------
+    if lancer:
+        try:
+            from smaxia_granulo_engine_test import run_granulo_engine
+
+            result = run_granulo_engine(
+                urls=urls.splitlines(),
                 volume=volume,
-                classe=classe,
                 matiere=matiere,
                 chapitres=chapitres
             )
 
-            st.session_state.subjects = result["subjects"]
-            st.session_state.qc = result["qc"]
+            st.session_state["sources"] = result["sources"]
+            st.session_state["qcs"] = result["qcs"]
 
-        st.success("Traitement terminé.")
+            st.success("Usine lancée – moteur Granulo branché (mode test).")
 
-    # -----------------------------
-    # TABLEAU DES SUJETS
-    # -----------------------------
-    st.markdown("### 📥 Sujets traités")
+        except Exception as e:
+            st.error("Moteur non branché ou erreur détectée.")
+            st.code(str(e))
 
-    if st.session_state.subjects:
-        df_subjects = pd.DataFrame([
-            {
-                "Fichier": s["id"],
-                "Nature": s["nature"],
-                "Année": s["year"],
-                "Source": s["source"]
-            }
-            for s in st.session_state.subjects
-        ])
+    # -------------------------------
+    # TABLEAU DES SUJETS TRAITÉS
+    # -------------------------------
+    st.divider()
+    st.subheader("📥 Sujets traités")
 
-        st.dataframe(df_subjects, use_container_width=True)
+    if "sources" in st.session_state:
+        df_sources = pd.DataFrame(st.session_state["sources"])
+        st.dataframe(
+            df_sources,
+            use_container_width=True
+        )
     else:
         st.info("Données affichées uniquement après branchement du moteur réel.")
 
-    # -----------------------------
-    # BASE DE CONNAISSANCE QC
-    # -----------------------------
-    if st.session_state.qc:
+    # -------------------------------
+    # BASE DE CONNAISSANCE (QC)
+    # -------------------------------
+    st.divider()
+    st.subheader("🧠 Base de connaissance (QC)")
 
-        st.markdown("## 🧠 Base de connaissance (QC)")
+    if "qcs" in st.session_state:
+        for qc in st.session_state["qcs"]:
+            st.markdown(f"""
+            ### Chapitre : {qc['chapitre']}
+            **{qc['qc_id']} : {qc['titre']}**
 
-        for qc in st.session_state.qc:
+            `Score(q)={qc['score']} | n_q={qc['n_q']} | Ψ={qc['psi']} | N_tot={qc['n_tot']} | t_réc={qc['t_rec']}`
+            """)
 
-            st.markdown(
-                f"""
-                ### Chapitre : {", ".join(chapitres) if chapitres else "—"}
-                **{qc['qc_id']} : QC générée**
-                """
-            )
+            c1, c2, c3, c4 = st.columns(4)
 
-            st.markdown(
-                f"""
-                **Score(q)** = {qc['score']} |
-                **n_q** = {qc['n_q']} |
-                **Ψ** = {qc['psi']} |
-                **N_tot** = {qc['N_tot']} |
-                **t_réc** = {qc['t_rec']}
-                """
-            )
-
-            colA, colB, colC, colD = st.columns(4)
-
-            with colA:
+            with c1:
                 st.markdown("🔥 **Déclencheurs**")
-                for qi in qc["qi"]:
-                    st.write("•", qi["text"])
+                for d in qc["declencheurs"]:
+                    st.markdown(f"- {d}")
 
-            with colB:
+            with c2:
                 st.markdown("⚙️ **ARI**")
-                for step in qc["ari"]:
-                    st.write("•", step["step"])
+                for a in qc["ari"]:
+                    st.markdown(f"- {a}")
 
-            with colC:
+            with c3:
                 st.markdown("📘 **FRT**")
-                st.info("Affichage FRT – moteur en cours de validation")
+                for bloc in qc["frt"]:
+                    st.info(bloc)
 
-            with colD:
+            with c4:
                 st.markdown("📄 **Qi associées**")
                 for qi in qc["qi"]:
-                    st.write(qi["qi_id"])
+                    st.markdown(f"- {qi}")
 
             st.divider()
+    else:
+        st.info("Aucune QC affichée – moteur non exécuté.")
 
-    # -----------------------------
-    # COURBE DE SATURATION (PLACEHOLDER)
-    # -----------------------------
-    st.markdown("### 📈 Courbe de saturation")
-    st.warning("Courbe activée lorsque le moteur de saturation sera branché.")
+    # -------------------------------
+    # COURBE DE SATURATION (PASSIVE)
+    # -------------------------------
+    st.subheader("📈 Courbe de saturation (QC / volume de sujets)")
+    st.info("La courbe sera activée une fois les équations F1/F2 validées.")
 
-# ============================================================
-# ONGLET 2 – AUDIT
-# ============================================================
+# =========================================================
+# ONGLET 2 — AUDIT
+# =========================================================
 with tab_audit:
+    st.subheader("🔍 Audit du moteur Granulo")
 
-    st.markdown("## 🧪 Audit du moteur Granulo")
+    st.markdown("""
+    **Audit interne**  
+    Objectif : chaque Qi → UNE et UNE SEULE QC  
+    Résultat attendu : **100 %**
+    """)
 
-    st.success("Audit interne : chaque Qi doit mapper vers UNE et UNE SEULE QC (objectif 100 %)")
-
-    st.info("Audit externe : import d’un sujet inconnu → calcul du taux de couverture (≥ 95 %)")
-
-    st.warning("Audit actif après stabilisation complète du moteur Granulo.")
+    st.di
