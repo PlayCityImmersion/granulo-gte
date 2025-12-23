@@ -1,200 +1,259 @@
-# ==============================================================================
-# SMAXIA – GRANULO ENGINE (TEST)
-# Version : TEST F1–F8
+# =============================================================================
+# SMAXIA — Granulo Engine (TEST)
 # Fichier : smaxia_granulo_engine_test.py
-#
-# ⚠️ AUCUNE LOGIQUE UI
-# ⚠️ AUCUN HARDCODING DE QC
-# ⚠️ TOUT EST DÉRIVÉ DES Qi
-# ==============================================================================
+# Périmètre : France | Terminale | Spécialité Maths | Suites Numériques
+# MODE : TEST SCIENTIFIQUE — AUCUNE SIMULATION — AUCUN HARDCODE QC
+# =============================================================================
 
-from dataclasses import dataclass
-from typing import List, Dict
+import requests
+import re
 import math
-import hashlib
+import uuid
+from typing import List, Dict, Tuple
 from collections import defaultdict
+from bs4 import BeautifulSoup
+import pandas as pd
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 
-# ==============================================================================
-# DATA STRUCTURES
-# ==============================================================================
+# =============================================================================
+# PARAMÈTRES GÉNÉRAUX (TEST)
+# =============================================================================
 
-@dataclass
-class Qi:
-    """
-    Question Individuelle (Qi)
-    """
-    texte: str
-    chapitre: str
-    source: str
-    annee: int
-
-
-@dataclass
-class ARIStep:
-    """
-    Étape ARI (Algorithme de Résolution Invariant)
-    """
-    label: str
-    poids: float
-
-
-@dataclass
-class QCResult:
-    """
-    QC générée par le moteur
-    """
-    qc_id: str
-    chapitre: str
-    ari_signature: str
-    qi_list: List[Qi]
-    score_q: float
-    psi: float
-    n_q: int
-
-
-# ==============================================================================
-# ARI – RÉFÉRENTIEL INVARIANT (TEST)
-# (sera enrichi plus tard – ici strictement TEST)
-# ==============================================================================
-
-ARI_LIBRARY = {
-    "SUITES_NUM_LIMITES": [
-        ARIStep("identifier_terme_dominant", 1.0),
-        ARIStep("factoriser", 1.2),
-        ARIStep("appliquer_limites_usuelles", 1.5),
-        ARIStep("conclure", 0.8),
-    ],
-    "SUITES_GEOMETRIQUES": [
-        ARIStep("exprimer_u_n_plus_1", 1.0),
-        ARIStep("calculer_rapport", 1.3),
-        ARIStep("simplifier", 1.0),
-        ARIStep("identifier_constante", 1.4),
-    ],
+HEADERS = {
+    "User-Agent": "SMAXIA-Granulo-Test/1.0"
 }
 
+CHAPITRE_CIBLE = "SUITES NUMÉRIQUES"
+NIVEAU = "TERMINALE"
+PAYS = "FRANCE"
 
-# ==============================================================================
-# F1 – SIGNATURE ARI (INVARIANT STRUCTUREL)
-# ==============================================================================
+EPSILON = 0.1
 
-def compute_ari_signature(ari_steps: List[ARIStep]) -> str:
+# =============================================================================
+# OUTILS BAS NIVEAU
+# =============================================================================
+
+def download_html(url: str) -> str:
+    r = requests.get(url, headers=HEADERS, timeout=20)
+    r.raise_for_status()
+    return r.text
+
+
+def extract_text_from_html(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "nav", "footer"]):
+        tag.decompose()
+    return soup.get_text(separator="\n")
+
+
+def split_into_questions(text: str) -> List[str]:
     """
-    Signature structurelle d'une QC (hash invariant)
+    Extraction STRICTE de Qi :
+    - phrases interrogatives
+    - consignes évaluatives classiques
     """
-    concat = "|".join(step.label for step in ari_steps)
-    return hashlib.sha256(concat.encode()).hexdigest()
+    lines = [l.strip() for l in text.split("\n") if len(l.strip()) > 20]
+
+    qi = []
+    for l in lines:
+        if (
+            "limite" in l.lower()
+            or "suite" in l.lower()
+            or "u_n" in l.lower()
+            or "u(n)" in l.lower()
+            or "déterminer" in l.lower()
+            or "montrer que" in l.lower()
+            or "calculer" in l.lower()
+            or "étudier" in l.lower()
+        ):
+            qi.append(l)
+
+    return list(dict.fromkeys(qi))  # déduplication stricte
 
 
-# ==============================================================================
-# F2 – POIDS PRÉDICTIF Ψ(q)
-# ==============================================================================
-def compute_psi(ari_steps: List[ARIStep]) -> float:
+# =============================================================================
+# ARI — ALGORITHME DE RÉSOLUTION INVARIANT
+# =============================================================================
+
+def build_ari_vector(qi_text: str) -> np.ndarray:
     """
-    Ψ(q) = (Σ poids ARI)^2 normalisé
+    Construction d’un vecteur ARI RÉEL.
+    Chaque composante = présence d’une transformation cognitive.
     """
-    raw = sum(step.poids for step in ari_steps)
-    return round((raw ** 2) / 10.0, 3)
+
+    transformations = {
+        "factorisation": ["factoriser", "terme dominant"],
+        "limite": ["limite", "tend vers", "+∞", "-∞"],
+        "quotient": ["/"],
+        "difference": ["-"],
+        "comparaison": ["major", "minor", "born"],
+        "recurrence": ["récurrence"],
+    }
+
+    vector = []
+    text = qi_text.lower()
+
+    for _, keywords in transformations.items():
+        vector.append(1.0 if any(k in text for k in keywords) else 0.0)
+
+    return np.array(vector, dtype=float)
 
 
-# ==============================================================================
-# F3 – SIMILARITÉ σ(qi, qc)
-# (TEST : matching lexical simple, remplaçable plus tard)
-# ==============================================================================
+# =============================================================================
+# F1 — POIDS PRÉDICTIF PURIFIÉ
+# =============================================================================
 
-def similarity_sigma(qi: Qi, ari_key: str) -> float:
-    txt = qi.texte.lower()
-    if "limite" in txt and "limite" in ari_key.lower():
-        return 1.0
-    if "géométrique" in txt and "geo" in ari_key.lower():
-        return 1.0
-    return 0.0
+def compute_psi(ari_vector: np.ndarray, delta_c: float = 1.0) -> float:
+    tj_sum = np.sum(ari_vector)
+    psi_raw = delta_c * (EPSILON + tj_sum) ** 2
+    return psi_raw
 
 
-# ==============================================================================
-# F4 – GROUPEMENT DES Qi PAR STRUCTURE ARI
-# ==============================================================================
+# =============================================================================
+# CLUSTERING QC (INVARIANTS)
+# =============================================================================
 
-def cluster_qi_by_ari(qi_list: List[Qi]) -> Dict[str, List[Qi]]:
-    clusters = defaultdict(list)
+def cluster_qi_into_qc(qi_df: pd.DataFrame, similarity_threshold=0.95):
+    """
+    QC = cluster de Qi ayant des ARI quasi identiques
+    """
+    vectors = np.stack(qi_df["ari_vector"].values)
+    sim = cosine_similarity(vectors)
 
-    for qi in qi_list:
-        for ari_key, ari_steps in ARI_LIBRARY.items():
-            if similarity_sigma(qi, ari_key) > 0.9:
-                clusters[ari_key].append(qi)
-                break
+    visited = set()
+    clusters = []
+
+    for i in range(len(qi_df)):
+        if i in visited:
+            continue
+
+        cluster_idx = {i}
+        for j in range(len(qi_df)):
+            if sim[i, j] >= similarity_threshold:
+                cluster_idx.add(j)
+
+        visited |= cluster_idx
+        clusters.append(cluster_idx)
 
     return clusters
 
 
-# ==============================================================================
-# F5 – SCORE GRANULO
-# ==============================================================================
-def compute_score(n_q: int, psi: float, n_tot: int) -> float:
-    """
-    Score(q) = (n_q / N_tot) × Ψ × 100
-    """
-    if n_tot == 0:
-        return 0.0
-    return round((n_q / n_tot) * psi * 100, 2)
+# =============================================================================
+# F2 — SCORE GRANULO
+# =============================================================================
+
+def compute_score_f2(n_q, N_tot, psi, t_rec):
+    density = n_q / max(N_tot, 1)
+    recency = 1 + 5.0 / max(t_rec, 0.5)
+    return density * recency * psi * 100
 
 
-# ==============================================================================
-# F6–F8 – MOTEUR GLOBAL
-# ==============================================================================
+# =============================================================================
+# PIPELINE PRINCIPAL
+# =============================================================================
 
-def run_granulo_engine(qi_list: List[Qi]) -> Dict:
+def run_granulo_pipeline(urls: List[str], volume: int):
     """
-    Moteur Granulo TEST
-    Entrée : liste de Qi
-    Sortie : QC générées + métriques
+    === FONCTION UNIQUE À APPELER DEPUIS L’UI ===
     """
 
-    clusters = cluster_qi_by_ari(qi_list)
-    qc_results: List[QCResult] = []
+    # -------------------------------------------------------------------------
+    # 1. RÉCUPÉRATION DES SUJETS
+    # -------------------------------------------------------------------------
+    subjects = []
+    qi_rows = []
 
-    n_tot = len(qi_list)
-    qc_index = 1
+    for url in urls[:volume]:
+        try:
+            html = download_html(url)
+            text = extract_text_from_html(html)
+            qi_list = split_into_questions(text)
 
-    for ari_key, qis in clusters.items():
-        ari_steps = ARI_LIBRARY[ari_key]
-        signature = compute_ari_signature(ari_steps)
-        psi = compute_psi(ari_steps)
-        score = compute_score(len(qis), psi, n_tot)
+            doc_id = str(uuid.uuid4())[:8]
 
-        qc_results.append(
-            QCResult(
-                qc_id=f"QC-{qc_index:02d}",
-                chapitre=qis[0].chapitre if qis else "UNKNOWN",
-                ari_signature=signature,
-                qi_list=qis,
-                score_q=score,
-                psi=psi,
-                n_q=len(qis)
-            )
+            for qi in qi_list:
+                ari = build_ari_vector(qi)
+
+                qi_rows.append({
+                    "qi_id": str(uuid.uuid4()),
+                    "texte": qi,
+                    "chapitre": CHAPITRE_CIBLE,
+                    "ari_vector": ari,
+                    "document_id": doc_id,
+                    "source": url
+                })
+
+            subjects.append({
+                "document_id": doc_id,
+                "source": url,
+                "nb_qi": len(qi_list)
+            })
+
+        except Exception as e:
+            print(f"[ERREUR] {url} → {e}")
+
+    qi_df = pd.DataFrame(qi_rows)
+    subjects_df = pd.DataFrame(subjects)
+
+    if qi_df.empty:
+        return subjects_df, qi_df, pd.DataFrame(), pd.DataFrame()
+
+    # -------------------------------------------------------------------------
+    # 2. CLUSTERING → QC
+    # -------------------------------------------------------------------------
+    clusters = cluster_qi_into_qc(qi_df)
+
+    qc_rows = []
+    N_tot = len(qi_df)
+
+    for idx, cluster in enumerate(clusters, start=1):
+        cluster_qi = qi_df.iloc[list(cluster)]
+        psi_vals = cluster_qi["ari_vector"].apply(compute_psi)
+
+        psi_max = psi_vals.max()
+        t_rec = 1.0  # test (pas encore temporel)
+
+        score = compute_score_f2(
+            n_q=len(cluster_qi),
+            N_tot=N_tot,
+            psi=psi_max,
+            t_rec=t_rec
         )
-        qc_index += 1
 
-    # ============================
-    # SORTIE NORMALISÉE
-    # ============================
-    return {
-        "N_Qi": n_tot,
-        "N_QC": len(qc_results),
-        "QC": [
-            {
-                "QC_ID": qc.qc_id,
-                "Chapitre": qc.chapitre,
-                "Score(q)": qc.score_q,
-                "Ψ": qc.psi,
-                "n_q": qc.n_q,
-                "ARI_signature": qc.ari_signature,
-                "Qi": [qi.texte for qi in qc.qi_list],
-            }
-            for qc in qc_results
-        ]
-    }
+        qc_rows.append({
+            "QC_ID": f"QC-{idx:02d}",
+            "chapitre": CHAPITRE_CIBLE,
+            "n_q": len(cluster_qi),
+            "Psi": round(psi_max, 3),
+            "Score": round(score, 2),
+            "qi_ids": cluster_qi["qi_id"].tolist(),
+        })
+
+    qc_df = pd.DataFrame(qc_rows)
+
+    # -------------------------------------------------------------------------
+    # 3. SATURATION
+    # -------------------------------------------------------------------------
+    sat_points = []
+    seen_qc = set()
+
+    for i in range(1, len(qi_df) + 1):
+        partial = qi_df.iloc[:i]
+        clusters_i = cluster_qi_into_qc(partial)
+        sat_points.append({
+            "Nombre de Qi": i,
+            "Nombre de QC": len(clusters_i)
+        })
+
+    saturation_df = pd.DataFrame(sat_points)
+
+    # -------------------------------------------------------------------------
+    # SORTIES OFFICIELLES
+    # -------------------------------------------------------------------------
+    return subjects_df, qi_df, qc_df, saturation_df
 
 
-# ==============================================================================
+# =============================================================================
 # FIN DU FICHIER
-# ==============================================================================
+# =============================================================================
