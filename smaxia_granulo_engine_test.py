@@ -1,479 +1,398 @@
-# -*- coding: utf-8 -*-
-# SMAXIA Granulo Test Engine - V31 SAFE (NO UI CHANGE, NO HARDCODE DATA)
-# Provides: run_granulo_test(urls, volume) -> {sujets,qc,saturation,audit}
+# smaxia_granulo_engine_test.py
+from __future__ import annotations
 
 import io
+import math
 import re
 import time
-import math
-from collections import Counter
-from urllib.parse import urljoin, urlparse
+from dataclasses import dataclass
+from typing import Dict, List, Tuple, Optional
 
 import requests
 import pdfplumber
 from bs4 import BeautifulSoup
 
 
-UA = "SMAXIA-GTE-V31SAFE/1.0"
-TIMEOUT = 25
+# =========================
+# CONFIG TEST (TRANSPARENT)
+# =========================
+UA = "SMAXIA-GTE/1.0 (+test-engine)"
+REQ_TIMEOUT = 20
+MAX_PDF_MB = 25  # sécurité
+MIN_QI_CHARS = 18
 
-MAX_HTML_PAGES = 60
-MAX_DEPTH = 2
-MAX_PDF_MB = 25
-MAX_PAGES_TEXT = 35
-
-# crawl hints for APMEP / annales
-FOLLOW_HINTS = (
-    "annales", "terminale", "generale", "générale", "specialite", "spécialité",
-    "enseignement", "math", "bac", "sujets", "corrig", "ts", "tle", "examen"
-)
-
-# reject obvious non-subject PDFs
-PDF_URL_BLACKLIST = (
-    "pv", "bulletin", "sommaire", "edito", "édito", "regionale", "régionale",
-    "journal", "vie-de", "litteramath", "revue", "compte-rendu", "editorial"
-)
-
-TEXT_BLACKLIST = (
-    "sommaire", "éditorial", "editorial", "procès-verbal", "proces-verbal",
-    "compte rendu", "assemblée générale", "bureau", "adhérents",
-    "vie de la régionale", "agenda"
-)
-
-# Terminale Maths - Suites (simple keyword filter)
-SUITES_KEYWORDS = set([
-    "suite", "suites", "arithmetique", "arithmétique", "geometrique", "géométrique",
-    "raison", "u_n", "u(n)", "u0", "u1", "u2", "u_{n}", "u_{n+1}",
-    "recurrence", "récurrence", "limite", "convergence", "divergence",
-    "monotone", "croissante", "decroissante", "décroissante",
-    "bornee", "bornée", "majoree", "majorée", "minoree", "minorée",
-    "terme", "somme"
-])
-
-STOPWORDS_FR = set([
-    "le","la","les","de","des","du","un","une","et","ou","a","à","au","aux","en","pour","par",
-    "sur","dans","avec","sans","que","qui","quoi","dont","ou","où","est","sont","etre","être",
-    "soit","on","il","elle","ils","elles","ce","cet","cette","ces","se","sa","son","ses",
-    "leur","leurs","plus","moins","tres","très","afin","ainsi","alors","donc"
-])
+# Filtrage "Suites numériques" (phase 1 France Terminale spé)
+SUITES_KEYWORDS = {
+    "suite", "suites", "arithmétique", "géométrique", "raison", "u_n", "un",
+    "récurrence", "recurrence", "limite", "convergence", "monotone", "bornée",
+    "borne", "majorée", "minorée", "sommes", "somme", "terme général", "terme general"
+}
 
 
-def _norm(s):
-    s = (s or "").lower()
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
+# =========================
+# OUTILS TEXTE
+# =========================
+def _normalize(text: str) -> str:
+    t = text.lower()
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
 
 
-def _tokenize(s):
-    s = _norm(s)
-    return re.findall(r"[a-zàâçéèêëîïôûùüÿñæœ0-9_]+", s)
+def _tokenize(text: str) -> List[str]:
+    t = _normalize(text)
+    # tokens simples, alphanum
+    toks = re.findall(r"[a-zàâçéèêëîïôûùüÿñæœ0-9]+", t)
+    return toks
 
 
-def _jaccard(a, b):
-    sa = set(a)
-    sb = set(b)
+def _jaccard(a: List[str], b: List[str]) -> float:
+    sa, sb = set(a), set(b)
     if not sa and not sb:
         return 0.0
     inter = len(sa & sb)
-    uni = len(sa | sb)
-    return float(inter) / float(uni) if uni else 0.0
+    union = len(sa | sb)
+    return inter / union if union else 0.0
 
 
-def _is_http(u):
-    try:
-        p = urlparse(u)
-        return p.scheme in ("http", "https") and bool(p.netloc)
-    except Exception:
-        return False
-
-
-def _same_domain(seed_netloc, u):
-    try:
-        n = urlparse(u).netloc.lower()
-        seed = (seed_netloc or "").lower()
-        return (n == seed) or n.endswith("." + seed)
-    except Exception:
-        return False
-
-
-def _looks_like_pdf(u):
-    return ".pdf" in (u or "").lower()
-
-
-def _blacklisted_pdf_url(u):
-    u = (u or "").lower()
-    for b in PDF_URL_BLACKLIST:
-        if b in u:
-            return True
-    return False
-
-
-def _looks_like_subject_text(text):
-    t = _norm(text)
-    if not t:
-        return False
-    hits = 0
-    for b in TEXT_BLACKLIST:
-        if b in t:
-            hits += 1
-    if hits >= 2:
-        return False
-    return True
-
-
-def _contains_suites_signal(text):
+def _contains_suites_signal(text: str) -> bool:
     toks = set(_tokenize(text))
     return len(toks & SUITES_KEYWORDS) > 0
 
 
-def _should_follow(href_abs, anchor_text, seed_netloc):
-    if not _is_http(href_abs):
-        return False
-    if not _same_domain(seed_netloc, href_abs):
-        return False
-
-    h = href_abs.lower()
-    if any(h.endswith(ext) for ext in (".jpg",".jpeg",".png",".gif",".zip",".rar",".7z")):
-        return False
-    if "mailto:" in h or "javascript:" in h:
-        return False
-
-    t = (anchor_text or "").strip().lower()
-    for k in FOLLOW_HINTS:
-        if (k in h) or (k in t):
-            return True
-    return False
-
-
-def extract_pdf_links_from_url(seed_url):
-    seed_netloc = urlparse(seed_url).netloc or ""
-    if not seed_netloc:
+# =========================
+# SCRAPING PDF LINKS
+# =========================
+def extract_pdf_links_from_url(url: str) -> List[str]:
+    try:
+        r = requests.get(url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT)
+        r.raise_for_status()
+    except Exception:
         return []
 
-    visited = set()
-    seen_pdf = set()
-    pdfs = []
-
-    queue = [(seed_url, 0)]
-
-    while queue and len(visited) < MAX_HTML_PAGES and len(pdfs) < 2000:
-        page_url, depth = queue.pop(0)
-        if page_url in visited:
+    soup = BeautifulSoup(r.text, "html.parser")
+    links = []
+    for a in soup.find_all("a", href=True):
+        href = a["href"].strip()
+        if not href:
             continue
-        visited.add(page_url)
-
-        try:
-            r = requests.get(page_url, headers={"User-Agent": UA}, timeout=TIMEOUT)
-            r.raise_for_status()
-        except Exception:
+        if ".pdf" not in href.lower():
             continue
 
-        ctype = (r.headers.get("Content-Type") or "").lower()
-        if ("application/pdf" in ctype) or page_url.lower().endswith(".pdf"):
-            if _looks_like_pdf(page_url) and (page_url not in seen_pdf) and (not _blacklisted_pdf_url(page_url)):
-                seen_pdf.add(page_url)
-                pdfs.append(page_url)
-            continue
+        # Absolutisation
+        if href.startswith("http://") or href.startswith("https://"):
+            links.append(href)
+        else:
+            base = url.rstrip("/")
+            if href.startswith("/"):
+                # récupère domaine
+                m = re.match(r"^(https?://[^/]+)", base)
+                if m:
+                    links.append(m.group(1) + href)
+            else:
+                links.append(base + "/" + href)
 
-        soup = BeautifulSoup(r.text, "html.parser")
-        for a in soup.find_all("a", href=True):
-            href = (a.get("href") or "").strip()
-            if not href:
-                continue
-            href_abs = urljoin(page_url, href)
-
-            if _looks_like_pdf(href_abs):
-                if _blacklisted_pdf_url(href_abs):
-                    continue
-                if href_abs not in seen_pdf:
-                    seen_pdf.add(href_abs)
-                    pdfs.append(href_abs)
-                continue
-
-            if depth < MAX_DEPTH:
-                txt = a.get_text(" ", strip=True)
-                if _should_follow(href_abs, txt, seed_netloc):
-                    if href_abs not in visited:
-                        queue.append((href_abs, depth + 1))
-
-    # stable dedupe
+    # dédoublonnage en conservant ordre
+    seen = set()
     out = []
-    s = set()
-    for x in pdfs:
-        if x not in s:
-            s.add(x)
+    for x in links:
+        if x not in seen:
+            seen.add(x)
             out.append(x)
     return out
 
 
-def extract_pdf_links(urls, volume):
-    # buffer to compensate rejections
-    target = max(int(volume) * 10, int(volume))
-    all_links = []
-    seen = set()
-    for u in (urls or []):
-        links = extract_pdf_links_from_url(u)
-        for x in links:
-            if x not in seen:
-                seen.add(x)
-                all_links.append(x)
-            if len(all_links) >= target:
-                break
-        if len(all_links) >= target:
+def extract_pdf_links(urls: List[str], limit: int) -> List[str]:
+    all_links: List[str] = []
+    for u in urls:
+        all_links.extend(extract_pdf_links_from_url(u))
+        if len(all_links) >= limit:
             break
-    return all_links[:target]
+    # dédoublonnage global
+    seen = set()
+    uniq = []
+    for x in all_links:
+        if x not in seen:
+            seen.add(x)
+            uniq.append(x)
+        if len(uniq) >= limit:
+            break
+    return uniq
 
 
-def download_pdf(url):
+# =========================
+# TELECHARGEMENT PDF
+# =========================
+def download_pdf(url: str) -> Optional[bytes]:
     try:
-        r = requests.get(url, headers={"User-Agent": UA}, timeout=TIMEOUT, stream=True)
+        r = requests.get(url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT, stream=True)
         r.raise_for_status()
 
-        ctype = (r.headers.get("Content-Type") or "").lower()
-        if ("pdf" not in ctype) and (".pdf" not in url.lower()):
-            return None
-
+        # check taille si dispo
         cl = r.headers.get("Content-Length")
         if cl:
-            try:
-                mb = float(int(cl)) / (1024.0 * 1024.0)
-                if mb > MAX_PDF_MB:
-                    return None
-            except Exception:
-                pass
-
-        buf = io.BytesIO()
-        max_bytes = int(MAX_PDF_MB) * 1024 * 1024
-        for chunk in r.iter_content(chunk_size=262144):
-            if not chunk:
-                continue
-            buf.write(chunk)
-            if buf.tell() > max_bytes:
+            mb = int(cl) / (1024 * 1024)
+            if mb > MAX_PDF_MB:
                 return None
-        return buf.getvalue()
+
+        data = r.content
+        if len(data) > MAX_PDF_MB * 1024 * 1024:
+            return None
+        return data
     except Exception:
         return None
 
 
-def extract_text_from_pdf_bytes(pdf_bytes):
-    parts = []
-    try:
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            n = min(len(pdf.pages), int(MAX_PAGES_TEXT))
-            for i in range(n):
-                t = pdf.pages[i].extract_text() or ""
-                t = t.replace("\u00ad", "")
-                if t.strip():
-                    parts.append(t)
-    except Exception:
-        return ""
-    return "\n".join(parts)
+# =========================
+# EXTRACTION TEXTE PDF
+# =========================
+def extract_text_from_pdf_bytes(pdf_bytes: bytes, max_pages: int = 25) -> str:
+    text_parts = []
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        n = min(len(pdf.pages), max_pages)
+        for i in range(n):
+            page = pdf.pages[i]
+            t = page.extract_text() or ""
+            if t.strip():
+                text_parts.append(t)
+    return "\n".join(text_parts)
 
 
-# --- Qi extraction (heuristic, no OCR) ---
-VERBS = ("calculer","determiner","déterminer","montrer","demontrer","démontrer","justifier",
-         "etudier","étudier","resoudre","résoudre","verifier","vérifier","prouver","en deduire","en déduire","exprimer")
+# =========================
+# EXTRACTION QI (HEURISTIQUE TRANSPARENTE)
+# =========================
+QI_SPLIT_PATTERNS = [
+    r"\bexercice\s*\d+\b",
+    r"\bquestion\s*\d+\b",
+    r"\bpartie\s*[a-z0-9]+\b",
+    r"^\s*\d+\s*[\).\:-]\s+",
+]
 
-QI_START_RE = re.compile(r"^\s*(?:exercice\s*\d+|question\s*\d+|partie\s*[a-z0-9]+|\d+\s*[\).\:-]|[a-z]\)\s*)\s*(.*)$", re.IGNORECASE)
-QI_VERB_RE = re.compile(r"\b(" + "|".join([re.escape(v) for v in VERBS]) + r")\b", re.IGNORECASE)
-MATH_SIG_RE = re.compile(r"(\bu[_\s\{\(]*n\b|\bu[_\s\{\(]*n\+1\b|\blim\b|\b\d+\b|[=<>+\-*/^]|sqrt|ln|log|exp)", re.IGNORECASE)
 
+def extract_qi_from_text(text: str) -> List[str]:
+    raw = text.replace("\r", "\n")
+    raw = re.sub(r"\n{2,}", "\n\n", raw)
 
-def extract_qi_from_text(text):
-    raw = (text or "").replace("\r", "\n")
-    raw = re.sub(r"\n{3,}", "\n\n", raw)
-    lines = [ln.strip() for ln in raw.split("\n") if ln.strip()]
-    out = []
-    i = 0
-    while i < len(lines):
-        ln = re.sub(r"\s+", " ", lines[i]).strip()
-        m = QI_START_RE.match(ln)
-        cand = m.group(1).strip() if m else ln
+    # segmentation grossière par blocs
+    blocks = re.split(r"\n\s*\n", raw)
+    candidates = []
 
-        verb_ok = bool(QI_VERB_RE.search(cand))
-        math_ok = bool(MATH_SIG_RE.search(cand))
-        suites_ok = _contains_suites_signal(cand)
+    for b in blocks:
+        b2 = b.strip()
+        if len(b2) < MIN_QI_CHARS:
+            continue
 
-        if (verb_ok and (math_ok or suites_ok)) or (suites_ok and len(cand) >= 18):
-            agg = [cand]
-            for j in (1, 2):
-                if i + j >= len(lines):
-                    break
-                nxt = lines[i + j].strip()
-                if QI_START_RE.match(nxt):
-                    break
-                if MATH_SIG_RE.search(nxt) or _contains_suites_signal(nxt):
-                    agg.append(nxt)
-            qi = " ".join(agg)
-            qi = re.sub(r"\s+", " ", qi).strip()
-            if len(qi) > 420:
-                qi = qi[:420].rsplit(" ", 1)[0] + "..."
-            if len(qi) >= 18:
-                out.append(qi)
+        # signal "énoncé" : présence de verbes fréquents
+        if re.search(r"\b(calculer|déterminer|montrer|justifier|étudier|prouver)\b", b2, re.IGNORECASE):
+            candidates.append(b2)
+            continue
 
-        i += 1
+        # ou présence de mot-clé suites (phase 1)
+        if _contains_suites_signal(b2):
+            candidates.append(b2)
 
-    # dedupe
+    # nettoyage léger : ne garder qu'une phrase / ligne représentative si bloc énorme
+    qi = []
+    for c in candidates:
+        c = re.sub(r"\s+", " ", c).strip()
+        if len(c) > 350:
+            # garder le début informatif
+            c = c[:350].rsplit(" ", 1)[0] + "…"
+        if len(c) >= MIN_QI_CHARS:
+            qi.append(c)
+
+    # dédoublonnage
     seen = set()
-    final = []
-    for q in out:
-        k = _norm(q)
+    out = []
+    for x in qi:
+        k = _normalize(x)
         if k not in seen:
             seen.add(k)
-            final.append(q)
-    return final
-
-
-def _extract_triggers(qi_texts, k):
-    toks = []
-    for t in qi_texts:
-        toks.extend(_tokenize(t))
-    filtered = []
-    for tok in toks:
-        if tok in STOPWORDS_FR:
-            continue
-        if tok.isdigit():
-            continue
-        if len(tok) < 4:
-            continue
-        filtered.append(tok)
-    freq = Counter(filtered)
-    return [w for (w, _) in freq.most_common(int(k))]
-
-
-def _infer_type(blob):
-    b = _norm(blob)
-    if ("recurrence" in b) or ("récurrence" in b):
-        return "RECURRENCE"
-    if ("geometrique" in b) or ("géométrique" in b):
-        return "GEOMETRIQUE"
-    if ("arithmetique" in b) or ("arithmétique" in b):
-        return "ARITHMETIQUE"
-    if "limite" in b and ("indetermination" in b or "indétermination" in b):
-        return "LIM_INDET"
-    if "limite" in b:
-        return "LIMITE"
-    if ("monotone" in b) or ("croissante" in b) or ("decroissante" in b) or ("décroissante" in b):
-        return "MONOTONIE"
-    if ("somme" in b) or ("sommes" in b):
-        return "SOMME"
-    return "GENERIC"
-
-
-def _build_ari_frt_title(qi_texts):
-    blob = " ".join(qi_texts)
-    t = _infer_type(blob)
-
-    title = qi_texts[0].strip() if qi_texts else "Question"
-    if len(title) > 90:
-        title = title[:90].rsplit(" ", 1)[0] + "..."
-
-    if t == "RECURRENCE":
-        ari = "1) Poser P(n)\n2) Initialisation\n3) Hérédité (P(n)=>P(n+1))\n4) Conclusion"
-        frt = {
-            "quand_utiliser": "Quand l'enonce demande 'pour tout n' avec une relation n -> n+1.",
-            "methode_redigee": "Ecrire P(n). Faire initialisation, puis heredite, puis conclure.",
-            "pieges": "Oublier l'initialisation ou ne pas utiliser P(n) dans l'heredite.",
-            "conclusion": "Conclure explicitement : 'Donc, pour tout n, ...'."
-        }
-    elif t == "GEOMETRIQUE":
-        ari = "1) Calculer u(n+1)/u(n)\n2) Montrer que c'est une constante q\n3) Conclure geometrie\n4) Donner u(n)=u(0)*q^n"
-        frt = {
-            "quand_utiliser": "Quand l'enonce parle de suite geometrique ou raison q.",
-            "methode_redigee": "Calculer le quotient et montrer qu'il est constant.",
-            "pieges": "Confondre difference et quotient.",
-            "conclusion": "Donner q puis l'expression explicite de u(n)."
-        }
-    elif t == "ARITHMETIQUE":
-        ari = "1) Calculer u(n+1)-u(n)\n2) Montrer que c'est une constante r\n3) Conclure arithmetique\n4) Donner u(n)=u(0)+n*r"
-        frt = {
-            "quand_utiliser": "Quand l'enonce parle de suite arithmetique ou pas constant.",
-            "methode_redigee": "Calculer la difference et montrer qu'elle est constante.",
-            "pieges": "Calculer un quotient au lieu d'une difference.",
-            "conclusion": "Donner r puis l'expression explicite."
-        }
-    elif t == "MONOTONIE":
-        ari = "1) Etudier u(n+1)-u(n)\n2) Determiner le signe\n3) Conclure croissance/decroissance"
-        frt = {
-            "quand_utiliser": "Quand l'enonce demande les variations ou monotonicite.",
-            "methode_redigee": "Etudier le signe de u(n+1)-u(n) pour tout n.",
-            "pieges": "Conclure sans justifier le signe pour tout n.",
-            "conclusion": "Conclure clairement le sens de variation."
-        }
-    elif t == "LIM_INDET":
-        ari = "1) Identifier l'indetermination\n2) Transformer (factoriser/rationaliser/equivalent)\n3) Simplifier\n4) Calculer la limite"
-        frt = {
-            "quand_utiliser": "Quand une limite donne 0/0 ou inf/inf.",
-            "methode_redigee": "Transformer pour lever l'indetermination puis recalculer la limite.",
-            "pieges": "Simplifier illegalement (division par 0) ou oublier le domaine.",
-            "conclusion": "Donner la limite et la transformation utilisee."
-        }
-    elif t == "LIMITE":
-        ari = "1) Analyser les termes dominants\n2) Appliquer les regles sur les limites/encadrement\n3) Conclure"
-        frt = {
-            "quand_utiliser": "Quand l'enonce demande la limite de u(n).",
-            "methode_redigee": "Utiliser regles usuelles ou encadrement selon la forme.",
-            "pieges": "Appliquer une regle sans verifier les hypotheses.",
-            "conclusion": "Conclure explicitement : lim u(n)=..."
-        }
-    elif t == "SOMME":
-        ari = "1) Ecrire la somme partielle S(n)\n2) Utiliser forme connue (geo/telescopique)\n3) Simplifier\n4) Conclure"
-        frt = {
-            "quand_utiliser": "Quand l'enonce demande une somme de termes de suite.",
-            "methode_redigee": "Ecrire S(n), utiliser une formule, puis simplifier.",
-            "pieges": "Erreur d'indices (0..n vs 1..n).",
-            "conclusion": "Donner l'expression finale de la somme."
-        }
-    else:
-        ari = "1) Identifier les donnees\n2) Choisir l'outil (calcul/recurrence/limite)\n3) Executer proprement\n4) Conclure"
-        frt = {
-            "quand_utiliser": "Question standard sur suite (type non detecte).",
-            "methode_redigee": "Reformuler, choisir un outil coherent, calculer, conclure.",
-            "pieges": "Sauter une justification ou melanger des methodes.",
-            "conclusion": "Conclusion explicite + resultat final."
-        }
-
-    return ari, frt, title
-
-
-def _group_qi_by_file(qi_items):
-    out = {}
-    for it in qi_items:
-        out.setdefault(it["subject_file"], []).append(it["text"])
+            out.append(x)
     return out
 
 
-def cluster_qi_to_qc(qi_items, sim_threshold):
-    clusters = []  # each: {id, rep_tokens, items}
+# =========================
+# CLUSTERING -> QC (GREEDY JACCARD)
+# =========================
+@dataclass
+class QiItem:
+    subject_id: str
+    subject_file: str
+    text: str
+
+
+def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.28) -> List[Dict]:
+    clusters: List[Dict] = []  # each: {id, rep_tokens, qis: [QiItem]}
     qc_idx = 1
 
-    for it in qi_items:
-        toks = _tokenize(it["text"])
+    for qi in qis:
+        toks = _tokenize(qi.text)
         if not toks:
             continue
 
         best_i = None
         best_sim = 0.0
+
         for i, c in enumerate(clusters):
             sim = _jaccard(toks, c["rep_tokens"])
             if sim > best_sim:
                 best_sim = sim
                 best_i = i
 
-        if best_i is not None and best_sim >= float(sim_threshold):
-            clusters[best_i]["items"].append(it)
+        if best_i is not None and best_sim >= sim_threshold:
+            clusters[best_i]["qis"].append(qi)
+            # rep_tokens = union léger (stabilise)
             clusters[best_i]["rep_tokens"] = list(set(clusters[best_i]["rep_tokens"]) | set(toks))
         else:
             clusters.append({
-                "id": "QC-{0:03d}".format(qc_idx),
+                "id": f"QC-{qc_idx:03d}",
                 "rep_tokens": toks,
-                "items": [it]
+                "qis": [qi],
             })
             qc_idx += 1
 
-    n_tot = len(qi_items)
+    # build QC objects
     qc_out = []
     for c in clusters:
-        qi_texts = [x["text"] for x in c["items"]]
-        triggers = _extract_triggers(qi_texts, 7)
-        ari, frt, title
+        qi_texts = [q.text for q in c["qis"]]
+
+        # titre QC = phrase représentative (premier Qi)
+        title = qi_texts[0]
+        title_short = title
+        if len(title_short) > 90:
+            title_short = title_short[:90].rsplit(" ", 1)[0] + "…"
+
+        # triggers = top keywords (simple)
+        tokens_all = []
+        for t in qi_texts:
+            tokens_all.extend(_tokenize(t))
+        freq = {}
+        for tok in tokens_all:
+            if tok in {"le", "la", "les", "de", "des", "du", "un", "une", "et", "à", "a", "en", "pour"}:
+                continue
+            if len(tok) < 4:
+                continue
+            freq[tok] = freq.get(tok, 0) + 1
+        triggers = [k for k, _ in sorted(freq.items(), key=lambda x: x[1], reverse=True)[:6]]
+
+        # métriques transparentes
+        n_q = len(qi_texts)
+        psi = round(min(1.0, n_q / 25.0), 2)  # simple, assumé
+        score = int(round(50 + 10 * math.log(1 + n_q), 0))
+
+        # ARI/FRT : pas de fake -> placeholders explicites (phase test)
+        ari = ["(TEST) ARI non généré automatiquement à ce stade."]
+        frt = {
+            "usage": "(TEST) FRT non générée automatiquement à ce stade.",
+            "method": "(TEST) FRT non générée automatiquement à ce stade.",
+            "trap": "(TEST) FRT non générée automatiquement à ce stade.",
+            "conc": "(TEST) FRT non générée automatiquement à ce stade.",
+        }
+
+        qc_out.append({
+            "chapter": "SUITES NUMÉRIQUES",  # phase 1
+            "qc_id": c["id"],
+            "qc_title": title_short,
+            "score": score,
+            "n_q": n_q,
+            "psi": psi,
+            "n_tot": len(qis),
+            "t_rec": 0.0,
+            "triggers": triggers,
+            "ari": ari,
+            "frt": frt,
+            # mapping Qi par fichier
+            "qi_by_file": _group_qi_by_file(c["qis"]),
+        })
+
+    return qc_out
+
+
+def _group_qi_by_file(qis: List[QiItem]) -> Dict[str, List[str]]:
+    out: Dict[str, List[str]] = {}
+    for q in qis:
+        out.setdefault(q.subject_file, []).append(q.text)
+    return out
+
+
+# =========================
+# SATURATION
+# =========================
+def compute_saturation(history_counts: List[int]) -> List[Dict]:
+    # history_counts[i] = nb QC après i+1 sujets
+    sat = []
+    for i, v in enumerate(history_counts):
+        sat.append({"Nombre de sujets injectés": i + 1, "Nombre de QC découvertes": v})
+    return sat
+
+
+# =========================
+# API PRINCIPALE POUR UI
+# =========================
+def run_granulo_test(urls: List[str], volume: int) -> Dict:
+    """
+    Retourne un dict :
+    - sujets: rows pour dataframe
+    - qc: liste QC structurées
+    - saturation: points courbe
+    - audit: métriques
+    """
+    start = time.time()
+
+    pdf_links = extract_pdf_links(urls, limit=volume)
+
+    sujets_rows = []
+    all_qis: List[QiItem] = []
+    qc_history = []
+
+    for idx, pdf_url in enumerate(pdf_links, start=1):
+        pdf_bytes = download_pdf(pdf_url)
+        if not pdf_bytes:
+            continue
+
+        text = extract_text_from_pdf_bytes(pdf_bytes)
+        if not text.strip():
+            continue
+
+        # extraction Qi
+        qi_texts = extract_qi_from_text(text)
+
+        # Filtrage phase 1 suites (aucun fake : on jette si pas signal)
+        qi_texts = [q for q in qi_texts if _contains_suites_signal(q)]
+
+        subject_file = pdf_url.split("/")[-1].split("?")[0]
+        source_host = re.sub(r"^https?://", "", pdf_url).split("/")[0]
+
+        sujets_rows.append({
+            "Fichier": subject_file,
+            "Nature": "INCONNU",
+            "Année": None,
+            "Source": source_host,
+        })
+
+        subject_id = f"S{idx:04d}"
+        for q in qi_texts:
+            all_qis.append(QiItem(subject_id=subject_id, subject_file=subject_file, text=q))
+
+        # QC cumulées (saturation)
+        qc_current = cluster_qi_to_qc(all_qis)
+        qc_history.append(len(qc_current))
+
+    qc_list = cluster_qi_to_qc(all_qis)
+    sat_points = compute_saturation(qc_history)
+
+    elapsed = round(time.time() - start, 2)
+
+    return {
+        "sujets": sujets_rows,
+        "qc": qc_list,
+        "saturation": sat_points,
+        "audit": {
+            "n_urls": len(urls),
+            "n_pdf_links": len(pdf_links),
+            "n_subjects_ok": len(sujets_rows),
+            "n_qi": len(all_qis),
+            "n_qc": len(qc_list),
+            "elapsed_s": elapsed,
+        }
+    }
