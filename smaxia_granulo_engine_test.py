@@ -1,125 +1,209 @@
 # smaxia_granulo_engine_test.py
-import requests
-from bs4 import BeautifulSoup
-import pdfplumber
-import re
-import io
-from collections import defaultdict
-from difflib import SequenceMatcher
-import time
+# GRANULO TEST ENGINE — SMAXIA
+# Objectif : extraction réelle → Qi → QC → FRT
 
-# --------------------------------------------------
-# CONFIG
-# --------------------------------------------------
-HEADERS = {"User-Agent": "SMAXIA-GRANULO/1.0"}
-MATH_KEYWORDS = [
-    "suite", "limite", "converge", "diverge", "u_n", "n tend vers",
-    "croissante", "décroissante", "récurrence"
+import os
+import re
+import requests
+import hashlib
+from bs4 import BeautifulSoup
+from pathlib import Path
+import pdfplumber
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+# =========================
+# CONFIGURATION
+# =========================
+BASE_URLS = [
+    "https://www.apmep.fr/-Terminale-"
 ]
 
-# --------------------------------------------------
-# UTILS
-# --------------------------------------------------
-def similar(a, b):
-    return SequenceMatcher(None, a, b).ratio()
+WORKDIR = Path("data_granulo")
+PDF_DIR = WORKDIR / "pdfs"
+TEXT_DIR = WORKDIR / "texts"
 
-def extract_pdf_links(url):
-    html = requests.get(url, headers=HEADERS, timeout=10).text
-    soup = BeautifulSoup(html, "html.parser")
-    return list(set(a["href"] for a in soup.find_all("a", href=True) if a["href"].lower().endswith(".pdf")))
+PDF_DIR.mkdir(parents=True, exist_ok=True)
+TEXT_DIR.mkdir(parents=True, exist_ok=True)
 
+CHAPTER_KEYWORDS = [
+    "suite",
+    "suites numériques",
+    "raison",
+    "terme général",
+    "récurrence",
+    "arithmétique",
+    "géométrique"
+]
+
+TRIGGERS = [
+    "calculer",
+    "déterminer",
+    "montrer que",
+    "démontrer",
+    "étudier",
+    "exprimer",
+    "en déduire"
+]
+
+# =========================
+# SCRAPING PDF URLS
+# =========================
+def scrape_pdf_urls():
+    pdf_urls = set()
+
+    for url in BASE_URLS:
+        r = requests.get(url, timeout=20)
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if href.lower().endswith(".pdf"):
+                if href.startswith("http"):
+                    pdf_urls.add(href)
+                else:
+                    pdf_urls.add("https://www.apmep.fr" + href)
+
+    return sorted(pdf_urls)
+
+# =========================
+# DOWNLOAD PDF
+# =========================
 def download_pdf(url):
-    r = requests.get(url, headers=HEADERS, timeout=20)
-    return io.BytesIO(r.content)
+    h = hashlib.md5(url.encode()).hexdigest()
+    pdf_path = PDF_DIR / f"{h}.pdf"
 
-def extract_text_from_pdf(pdf_bytes):
-    text = ""
-    with pdfplumber.open(pdf_bytes) as pdf:
+    if pdf_path.exists():
+        return pdf_path
+
+    r = requests.get(url, timeout=30)
+    if r.status_code == 200:
+        with open(pdf_path, "wb") as f:
+            f.write(r.content)
+        return pdf_path
+
+    return None
+
+# =========================
+# PDF TEXT EXTRACTION
+# =========================
+def extract_text_from_pdf(pdf_path):
+    full_text = []
+
+    with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             t = page.extract_text()
             if t:
-                text += "\n" + t
-    return text.lower()
+                full_text.append(t)
 
+    return "\n".join(full_text)
+
+# =========================
+# QI EXTRACTION
+# =========================
 def extract_qi(text):
-    sentences = re.split(r"[?.!]\s+", text)
+    lines = [l.strip() for l in text.split("\n") if len(l.strip()) > 20]
+
     qi = []
-    for s in sentences:
-        if any(k in s for k in MATH_KEYWORDS) and len(s) > 40:
-            qi.append(s.strip())
+    for l in lines:
+        if re.search(r"(suite|u_n|v_n|raison|récurrence)", l.lower()):
+            qi.append(l)
+
     return qi
 
-# --------------------------------------------------
-# GRANULO CORE
-# --------------------------------------------------
-def granulo_run(urls, max_subjects=20):
-    start = time.time()
-    subjects = []
-    all_qi = []
+# =========================
+# FILTER CHAPTER
+# =========================
+def is_suites_numeriques(text):
+    t = text.lower()
+    return any(k in t for k in CHAPTER_KEYWORDS)
 
-    for url in urls:
-        try:
-            pdf_links = extract_pdf_links(url)
-        except:
+# =========================
+# QC GROUPING
+# =========================
+def group_qi_to_qc(qi_list, threshold=0.45):
+    if len(qi_list) < 2:
+        return [[q] for q in qi_list]
+
+    vect = TfidfVectorizer(stop_words="french")
+    X = vect.fit_transform(qi_list)
+    sim = cosine_similarity(X)
+
+    clusters = []
+    used = set()
+
+    for i in range(len(qi_list)):
+        if i in used:
             continue
 
-        for link in pdf_links[:max_subjects]:
-            try:
-                pdf_bytes = download_pdf(link)
-                text = extract_text_from_pdf(pdf_bytes)
-                qi = extract_qi(text)
-                if qi:
-                    subjects.append({
-                        "file": link.split("/")[-1],
-                        "source": url,
-                        "qi": qi
-                    })
-                    all_qi.extend(qi)
-            except:
-                continue
+        cluster = [qi_list[i]]
+        used.add(i)
 
-    # QC clustering (simple but réel)
-    qc_map = defaultdict(list)
-    for qi in all_qi:
-        assigned = False
-        for qc in qc_map:
-            if similar(qc, qi) > 0.75:
-                qc_map[qc].append(qi)
-                assigned = True
-                break
-        if not assigned:
-            qc_map[qi].append(qi)
+        for j in range(i + 1, len(qi_list)):
+            if sim[i, j] >= threshold:
+                cluster.append(qi_list[j])
+                used.add(j)
 
-    qc_list = []
-    for i, (qc_label, qis) in enumerate(qc_map.items(), 1):
-        qc_list.append({
-            "qc_id": f"QC-{i:03}",
-            "title": qc_label[:120],
-            "n_q": len(qis),
-            "declencheurs": list(set(re.findall(r"\b\w{6,}\b", qc_label)))[:6],
-            "ari": [
-                "Identifier la suite",
-                "Étudier le comportement",
-                "Utiliser les théorèmes",
-                "Conclure"
-            ],
-            "frt": {
-                "usage": "Étude de suite numérique",
-                "method": "Analyse – théorème – conclusion",
-                "trap": "Confusion convergence/divergence",
-                "conclusion": "Conclusion rigoureuse"
-            },
-            "qi": qis
-        })
+        clusters.append(cluster)
+
+    return clusters
+
+# =========================
+# FRT COMPUTATION
+# =========================
+def compute_frt(qc):
+    text = " ".join(qc).lower()
+
+    triggers = [t for t in TRIGGERS if t in text]
 
     return {
-        "subjects": subjects,
-        "qc": qc_list,
-        "audit": {
-            "n_urls": len(urls),
-            "n_subjects": len(subjects),
-            "n_qi": len(all_qi),
-            "n_qc": len(qc_list),
-            "elapsed_s": round(time.time() - start, 2)
-        }
+        "declencheurs": triggers,
+        "ari": list(range(1, len(qc) + 1)),
+        "n_q": len(qc),
+        "score": round(len(triggers) / max(len(qc), 1), 2)
     }
+
+# =========================
+# MAIN ENGINE
+# =========================
+def run_engine():
+    results = []
+
+    pdf_urls = scrape_pdf_urls()
+    print(f"[INFO] PDFs trouvés : {len(pdf_urls)}")
+
+    for url in pdf_urls:
+        pdf_path = download_pdf(url)
+        if not pdf_path:
+            continue
+
+        text = extract_text_from_pdf(pdf_path)
+        if not is_suites_numeriques(text):
+            continue
+
+        qi = extract_qi(text)
+        if not qi:
+            continue
+
+        qcs = group_qi_to_qc(qi)
+
+        for qc in qcs:
+            frt = compute_frt(qc)
+            results.append({
+                "qc": qc,
+                "frt": frt
+            })
+
+    return results
+
+# =========================
+# EXEC
+# =========================
+if __name__ == "__main__":
+    data = run_engine()
+    print(f"[OK] QC générées : {len(data)}")
+
+    for i, d in enumerate(data[:5]):
+        print(f"\nQC {i+1}")
+        print(d["qc"][:2])
+        print(d["frt"])
