@@ -1,147 +1,131 @@
 # smaxia_granulo_engine_test.py
-# GRANULO TEST ENGINE — SMAXIA (VERSION STABLE)
+# ENGINE SAFE PATCH — ne doit jamais casser l'UI à l'import
 
-import os
-import re
-import requests
-import hashlib
-from bs4 import BeautifulSoup
+from __future__ import annotations
 from pathlib import Path
-import pdfplumber
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from typing import List, Dict, Any, Optional
+import re
+import hashlib
 
-BASE_URLS = [
-    "https://www.apmep.fr/-Terminale-"
-]
+import requests
+
+BASE_URLS = ["https://www.apmep.fr/-Terminale-"]
 
 WORKDIR = Path("data_granulo")
 PDF_DIR = WORKDIR / "pdfs"
-TEXT_DIR = WORKDIR / "texts"
-
 PDF_DIR.mkdir(parents=True, exist_ok=True)
-TEXT_DIR.mkdir(parents=True, exist_ok=True)
 
-CHAPTER_KEYWORDS = [
-    "suite",
-    "suites numériques",
-    "raison",
-    "terme général",
-    "récurrence",
-    "arithmétique",
-    "géométrique"
-]
+PDF_HREF_RE = re.compile(r'href=["\']([^"\']+\.pdf)["\']', re.IGNORECASE)
 
-TRIGGERS = [
-    "calculer",
-    "déterminer",
-    "montrer que",
-    "démontrer",
-    "étudier",
-    "exprimer",
-    "en déduire"
-]
+CHAPTER_KEYWORDS = ["suite", "suites", "récurrence", "arithmétique", "géométrique", "raison", "terme général", "u_n", "v_n"]
+TRIGGERS = ["calculer", "déterminer", "montrer que", "démontrer", "étudier", "exprimer", "en déduire", "justifier"]
 
-def scrape_pdf_urls():
+
+def _absolute_apmep_url(href: str) -> str:
+    if href.startswith("http"):
+        return href
+    if href.startswith("/"):
+        return "https://www.apmep.fr" + href
+    return "https://www.apmep.fr/" + href
+
+
+def scrape_pdf_urls() -> List[str]:
     pdf_urls = set()
     for url in BASE_URLS:
         r = requests.get(url, timeout=20)
-        soup = BeautifulSoup(r.text, "html.parser")
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if href.lower().endswith(".pdf"):
-                pdf_urls.add(
-                    href if href.startswith("http")
-                    else "https://www.apmep.fr" + href
-                )
+        r.raise_for_status()
+        for m in PDF_HREF_RE.finditer(r.text):
+            pdf_urls.add(_absolute_apmep_url(m.group(1).strip()))
     return sorted(pdf_urls)
 
-def download_pdf(url):
-    h = hashlib.md5(url.encode()).hexdigest()
+
+def download_pdf(url: str) -> Optional[Path]:
+    h = hashlib.md5(url.encode("utf-8")).hexdigest()
     pdf_path = PDF_DIR / f"{h}.pdf"
-    if pdf_path.exists():
+    if pdf_path.exists() and pdf_path.stat().st_size > 1024:
         return pdf_path
+
     r = requests.get(url, timeout=30)
-    if r.status_code == 200:
-        pdf_path.write_bytes(r.content)
-        return pdf_path
-    return None
+    if r.status_code != 200 or not r.content:
+        return None
 
-def extract_text_from_pdf(pdf_path):
-    text = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text()
-            if t:
-                text.append(t)
-    return "\n".join(text)
+    pdf_path.write_bytes(r.content)
+    if pdf_path.stat().st_size < 1024:
+        return None
+    return pdf_path
 
-def extract_qi(text):
-    qi = []
-    for line in text.split("\n"):
-        l = line.strip()
-        if len(l) > 20 and re.search(r"(suite|u_n|v_n|récurrence)", l.lower()):
-            qi.append(l)
-    return qi
 
-def is_suites_numeriques(text):
+def extract_text_from_pdf(pdf_path: Path) -> str:
+    # Imports retardés pour éviter ImportError au chargement
+    try:
+        import pdfplumber  # type: ignore
+        texts = []
+        with pdfplumber.open(str(pdf_path)) as pdf:
+            for page in pdf.pages:
+                t = page.extract_text() or ""
+                if t.strip():
+                    texts.append(t)
+        return "\n".join(texts).strip()
+    except Exception:
+        # Fallback PyPDF2 si dispo
+        try:
+            from PyPDF2 import PdfReader  # type: ignore
+            reader = PdfReader(str(pdf_path))
+            texts = []
+            for page in reader.pages:
+                t = page.extract_text() or ""
+                if t.strip():
+                    texts.append(t)
+            return "\n".join(texts).strip()
+        except Exception:
+            return ""
+
+
+def is_suites_numeriques(text: str) -> bool:
     t = text.lower()
     return any(k in t for k in CHAPTER_KEYWORDS)
 
-def group_qi_to_qc(qi_list, threshold=0.45):
-    if len(qi_list) < 2:
-        return [[q] for q in qi_list]
 
-    vect = TfidfVectorizer(stop_words="french")
-    X = vect.fit_transform(qi_list)
-    sim = cosine_similarity(X)
+def extract_qi(text: str) -> List[str]:
+    lines = [l.strip() for l in text.split("\n") if len(l.strip()) >= 18]
+    qi = []
+    for l in lines:
+        if re.search(r"(suite|u_n|v_n|récurrence|raison|arithmétique|géométrique)", l, re.IGNORECASE):
+            qi.append(l)
+    return qi
 
-    clusters, used = [], set()
-    for i in range(len(qi_list)):
-        if i in used:
-            continue
-        cluster = [qi_list[i]]
-        used.add(i)
-        for j in range(i + 1, len(qi_list)):
-            if sim[i, j] >= threshold:
-                cluster.append(qi_list[j])
-                used.add(j)
-        clusters.append(cluster)
-    return clusters
 
-def compute_frt(qc):
-    text = " ".join(qc).lower()
-    triggers = [t for t in TRIGGERS if t in text]
+def compute_frt(qc: List[str]) -> Dict[str, Any]:
+    joined = " ".join(qc).lower()
+    triggers = [t for t in TRIGGERS if t in joined]
     return {
         "declencheurs": triggers,
         "ari": list(range(1, len(qc) + 1)),
         "n_q": len(qc),
-        "score": round(len(triggers) / max(len(qc), 1), 2)
+        "score": round(len(triggers) / max(len(qc), 1), 2),
     }
 
-# ✅ FONCTION OFFICIELLE EXPORTÉE
-def run_granulo_test():
-    results = []
-    pdf_urls = scrape_pdf_urls()
 
-    for url in pdf_urls:
+def run_granulo_test() -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    urls = scrape_pdf_urls()
+
+    for url in urls:
         pdf_path = download_pdf(url)
         if not pdf_path:
             continue
 
         text = extract_text_from_pdf(pdf_path)
-        if not is_suites_numeriques(text):
+        if not text or not is_suites_numeriques(text):
             continue
 
         qi = extract_qi(text)
         if not qi:
             continue
 
-        qcs = group_qi_to_qc(qi)
-        for qc in qcs:
-            results.append({
-                "qc": qc,
-                "frt": compute_frt(qc)
-            })
+        # Regroupement simple : 1 QC = lot de Qi (mode minimal stable)
+        # (On pourra remettre le clustering ensuite, mais d'abord ZÉRO crash)
+        qc = qi[:10]
+        results.append({"qc": qc, "frt": compute_frt(qc)})
 
     return results
