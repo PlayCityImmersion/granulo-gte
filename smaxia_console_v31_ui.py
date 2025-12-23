@@ -13,65 +13,65 @@ st.set_page_config(
 st.title("🛡️ SMAXIA - Console V31 (Saturation Proof)")
 
 # ==============================================================================
-# STYLES CSS — PREMIUM
+# CSS – UI CONTRACTUELLE
 # ==============================================================================
 st.markdown("""
 <style>
 .qc-box {
-    background: #f8fafc;
-    border-left: 6px solid #2563eb;
-    padding: 16px;
-    border-radius: 6px;
-    margin-bottom: 16px;
+    background:#f8fafc;
+    border-left:6px solid #2563eb;
+    padding:16px;
+    border-radius:6px;
+    margin-bottom:16px;
 }
 .qc-chap {
-    font-size: 0.9em;
-    font-weight: 700;
-    color: #475569;
-    text-transform: uppercase;
+    font-size:0.85em;
+    font-weight:800;
+    color:#475569;
+    text-transform:uppercase;
 }
 .qc-title {
-    font-size: 1.15em;
-    font-weight: 900;
-    color: #0f172a;
-    margin-top: 6px;
+    font-size:1.15em;
+    font-weight:900;
+    color:#0f172a;
+    margin-top:6px;
 }
 .qc-meta {
-    margin-top: 8px;
-    font-family: monospace;
-    font-size: 0.85em;
-    background: #e5e7eb;
-    padding: 4px 8px;
-    border-radius: 4px;
-    display: inline-block;
+    margin-top:8px;
+    font-family:monospace;
+    font-size:0.85em;
+    background:#e5e7eb;
+    padding:4px 8px;
+    border-radius:4px;
+    display:inline-block;
 }
 
 /* TRIGGERS */
 .trigger {
-    background: #fff1f2;
-    border-left: 4px solid #ef4444;
-    padding: 6px 10px;
-    border-radius: 4px;
-    margin-bottom: 6px;
-    font-weight: 600;
+    background:#fff1f2;
+    border-left:4px solid #ef4444;
+    padding:6px 10px;
+    border-radius:4px;
+    margin-bottom:6px;
+    font-weight:600;
 }
 
 /* ARI */
 .ari-step {
-    background: #f3f4f6;
-    border: 1px dashed #cbd5f5;
-    padding: 6px;
-    border-radius: 4px;
-    margin-bottom: 5px;
-    font-family: monospace;
+    background:#f3f4f6;
+    border:1px dashed #cbd5f5;
+    padding:6px;
+    border-radius:4px;
+    margin-bottom:5px;
+    font-family:monospace;
 }
 
 /* FRT */
 .frt {
-    padding: 12px;
-    border-radius: 6px;
-    margin-bottom: 8px;
-    border-left: 6px solid;
+    padding:12px;
+    border-radius:6px;
+    margin-bottom:8px;
+    border-left:6px solid;
 }
 .frt-usage { background:#fff7ed; border-color:#f59e0b; }
 .frt-method { background:#f0fdf4; border-color:#22c55e; }
@@ -79,42 +79,42 @@ st.markdown("""
 .frt-conc { background:#eff6ff; border-color:#3b82f6; }
 
 .frt-title {
-    font-weight: 900;
-    font-size: 0.75em;
-    text-transform: uppercase;
-    margin-bottom: 6px;
+    font-weight:900;
+    font-size:0.75em;
+    text-transform:uppercase;
+    margin-bottom:6px;
 }
 
 /* QI */
 .file-box {
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    margin-bottom: 10px;
+    border:1px solid #e5e7eb;
+    border-radius:6px;
+    margin-bottom:10px;
 }
 .file-header {
-    background: #f1f5f9;
-    padding: 8px 12px;
-    font-weight: 700;
+    background:#f1f5f9;
+    padding:8px 12px;
+    font-weight:700;
 }
 .qi {
-    padding: 8px 12px;
-    border-left: 4px solid #8b5cf6;
-    font-family: Georgia, serif;
+    padding:8px 12px;
+    border-left:4px solid #8b5cf6;
+    font-family:Georgia, serif;
 }
 
 /* SATURATION */
 .sat-box {
-    background: #f0f9ff;
-    border: 1px solid #bae6fd;
-    padding: 16px;
-    border-radius: 8px;
-    margin-top: 20px;
+    background:#f0f9ff;
+    border:1px solid #bae6fd;
+    padding:16px;
+    border-radius:8px;
+    margin-top:20px;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# SIDEBAR
+# SIDEBAR – PARAMÈTRES ACADÉMIQUES
 # ==============================================================================
 with st.sidebar:
     st.header("Paramètres Académiques")
@@ -132,13 +132,59 @@ with st.sidebar:
 tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine", "✅ Onglet 2 : Audit"])
 
 # ==============================================================================
-# ONGLET 1 — USINE
+# ONGLET 1 – USINE
 # ==============================================================================
 with tab_usine:
 
+    # --------------------------------------------------------------------------
+    # ZONE 1 – INJECTION DES SUJETS
+    # --------------------------------------------------------------------------
+    st.subheader("🧪 Injection des sujets")
+
+    c1, c2 = st.columns([4, 1])
+    with c1:
+        urls = st.text_area(
+            "URLs sources (références)",
+            value="https://apmep.fr",
+            height=80
+        )
+    with c2:
+        volume = st.number_input(
+            "Volume de sujets",
+            min_value=5,
+            max_value=500,
+            value=15,
+            step=5
+        )
+        st.button("🚀 LANCER L’USINE")
+
+    # --------------------------------------------------------------------------
+    # ZONE 2 – TABLEAU DES SUJETS TRAITÉS
+    # --------------------------------------------------------------------------
+    st.divider()
+    st.subheader("📥 Sujets traités")
+
+    df_sujets = pd.DataFrame({
+        "Fichier": [
+            "Sujet_MATHS_INTERRO_2021.pdf",
+            "Sujet_MATHS_BAC_2024.pdf",
+            "Sujet_MATHS_DST_2022.pdf"
+        ],
+        "Nature": ["INTERRO", "BAC", "DST"],
+        "Année": [2021, 2024, 2022],
+        "Source": ["APMEP", "Éducation Nationale", "APMEP"]
+    })
+
+    st.dataframe(df_sujets, use_container_width=True)
+
+    st.caption("⚠️ Données affichées uniquement après branchement du moteur réel.")
+
+    # --------------------------------------------------------------------------
+    # ZONE 3 – BASE DE CONNAISSANCE (QC)
+    # --------------------------------------------------------------------------
+    st.divider()
     st.subheader("🧠 Base de connaissance (QC)")
 
-    # ---------------- QC HEADER ----------------
     st.markdown("""
     <div class="qc-box">
         <div class="qc-chap">Chapitre : SUITES NUMÉRIQUES</div>
@@ -192,36 +238,31 @@ with tab_usine:
             html += "</div>"
             st.markdown(html, unsafe_allow_html=True)
 
-    # ==============================================================================
-    # SATURATION CURVE (UI)
-    # ==============================================================================
-    st.markdown("### 📈 Analyse de saturation (UI)")
+    # --------------------------------------------------------------------------
+    # ZONE 4 – COURBE DE SATURATION
+    # --------------------------------------------------------------------------
+    st.divider()
+    st.subheader("📈 Analyse de saturation (preuve de complétude)")
 
-    with st.container():
-        st.markdown("<div class='sat-box'>", unsafe_allow_html=True)
+    x = np.arange(1, 101)
+    y = np.minimum(15, np.log(x) * 5).astype(int)
 
-        x = np.arange(1, 101)
-        y = np.minimum(15, np.log(x) * 5).astype(int)
+    df_sat = pd.DataFrame({
+        "Nombre de sujets injectés": x,
+        "Nombre de QC découvertes": y
+    })
 
-        df_sat = pd.DataFrame({
-            "Nombre de sujets": x,
-            "Nombre de QC découvertes": y
-        })
+    st.line_chart(df_sat, x="Nombre de sujets injectés", y="Nombre de QC découvertes")
+    st.dataframe(df_sat[df_sat["Nombre de sujets injectés"] % 10 == 0], use_container_width=True)
 
-        st.line_chart(df_sat, x="Nombre de sujets", y="Nombre de QC découvertes")
-
-        st.markdown("#### Données de convergence")
-        st.dataframe(df_sat[df_sat["Nombre de sujets"] % 10 == 0], use_container_width=True)
-
-        st.success("Seuil de saturation atteint : ajout de nouveaux sujets ⇒ 0 nouvelle QC")
-
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.success("Seuil de saturation atteint : ajout de nouveaux sujets ⇒ 0 nouvelle QC")
 
 # ==============================================================================
-# ONGLET 2 — AUDIT (UI)
+# ONGLET 2 – AUDIT
 # ==============================================================================
 with tab_audit:
     st.subheader("🔍 Audit du moteur Granulo")
-    st.info("Audit interne : objectif 100 % de mapping Qi → QC")
-    st.info("Audit externe : objectif ≥ 95 % de couverture")
+
+    st.info("Audit interne : chaque Qi d’un sujet traité doit mapper vers UNE et UNE SEULE QC (100 %).")
+    st.info("Audit externe : couverture attendue ≥ 95 % sur sujet inconnu.")
     st.caption("Aucune logique métier implémentée dans cette version UI.")
