@@ -1,27 +1,41 @@
 # smaxia_console_v31_ui.py
-# SMAXIA GRANULO CONSOLE v3.1 — STREAMLIT
+# UI SAFE PATCH — aucune régression: l'app ne crash plus au chargement
 
 import streamlit as st
-from smaxia_granulo_engine_test import run_granulo_test
 
-st.set_page_config(page_title="SMAXIA Granulo GTE", layout="wide")
+st.set_page_config(page_title="SMAXIA Console v3.1", layout="wide")
+st.title("SMAXIA — Console Granulo v3.1")
 
-st.title("🧠 SMAXIA — Granulo Test Engine")
-st.caption("Extraction réelle → Qi → QC → FRT (preuves uniquement)")
+st.info(
+    "Mode sécurisé : l'application ne plante plus au chargement. "
+    "Le moteur est importé uniquement au clic (anti-régression)."
+)
 
-if st.button("🚀 Lancer le moteur Granulo"):
-    with st.spinner("Extraction des PDFs et calcul en cours..."):
-        results = run_granulo_test()
+run_clicked = st.button("🚀 Lancer le moteur")
 
-    if not results:
-        st.error("❌ Aucune QC générée — vérifier les sources")
-    else:
-        st.success(f"✅ QC générées : {len(results)}")
+if run_clicked:
+    try:
+        # Import retardé (le chargement UI ne dépend plus du moteur)
+        from smaxia_granulo_engine_test import run_granulo_test  # noqa: WPS433
 
-        for i, r in enumerate(results[:5], 1):
-            with st.expander(f"QC {i}"):
-                for j, qi in enumerate(r["qc"], 1):
-                    st.write(f"**Qi {j}** : {qi}")
+        with st.spinner("Exécution du moteur..."):
+            results = run_granulo_test()
 
-                st.markdown("### FRT")
-                st.json(r["frt"])
+        if not results:
+            st.warning("Aucun résultat renvoyé par le moteur.")
+        else:
+            st.success(f"QC générées : {len(results)}")
+            for i, r in enumerate(results[:10], 1):
+                with st.expander(f"QC {i}"):
+                    qc = r.get("qc", [])
+                    frt = r.get("frt", {})
+                    for j, qi in enumerate(qc, 1):
+                        st.write(f"Qi {j} : {qi}")
+                    st.markdown("### FRT")
+                    st.json(frt)
+
+    except Exception as e:
+        # IMPORTANT : on n'écrase pas l'UI, on affiche l'erreur proprement
+        st.error("Le moteur n’a pas pu être importé/exécuté. UI intacte (aucune régression).")
+        st.code(repr(e))
+        st.stop()
