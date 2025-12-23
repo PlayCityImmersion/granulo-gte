@@ -1,286 +1,203 @@
 import streamlit as st
 import pandas as pd
+import random
 from collections import defaultdict
+from datetime import datetime
 
-# =============================================================================
+# ==============================================================================
 # CONFIG
-# =============================================================================
-st.set_page_config(
-    layout="wide",
-    page_title="SMAXIA - Console V31 (Saturation Proof)"
-)
-
+# ==============================================================================
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V31")
 st.title("🛡️ SMAXIA - Console V31 (Saturation Proof)")
 
-# =============================================================================
-# CSS — UI SMAXIA PREMIUM (VERROUILLÉ)
-# =============================================================================
+# ==============================================================================
+# STYLE PREMIUM SMAXIA
+# ==============================================================================
 st.markdown("""
 <style>
-
-/* ==============================
-   SIDEBAR
-================================*/
-section[data-testid="stSidebar"] {
-    background-color: #f8fafc;
-}
-
-/* ==============================
-   HEADER QC — WAHOO VERSION
-================================*/
-.qc-header-box {
+.qc-header {
     background: #f8fafc;
     border-left: 6px solid #2563eb;
-    padding: 14px 16px;
-    margin-bottom: 12px;
-    border-radius: 10px;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
-}
-
-.qc-chap-line{
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace;
-    font-size: 0.86em;
-    font-weight: 800;
-    color: #475569;
-    margin-bottom: 6px;
-}
-
-.qc-title-line{
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    margin-bottom: 8px;
-}
-
-.qc-id-pill{
-    background: #fff7ed;
-    border: 1px solid #fed7aa;
-    color: #c2410c;
-    font-weight: 900;
-    font-size: 0.95em;
-    padding: 3px 8px;
-    border-radius: 999px;
-}
-
-.qc-title-text{
-    color: #0f172a;
-    font-weight: 800;
-    font-size: 1.08em;
-}
-
-.qc-meta-line{
-    font-family: ui-monospace, monospace;
-    font-size: 0.86em;
-    font-weight: 800;
-    color: #334155;
-    background: #e2e8f0;
-    padding: 6px 10px;
-    border-radius: 8px;
-    display: inline-block;
-}
-
-/* ==============================
-   BLOCKS
-================================*/
-.trigger-item {
-    background-color: #fff1f2;
-    color: #991b1b;
-    padding: 6px 10px;
-    margin-bottom: 6px;
+    padding: 14px 18px;
     border-radius: 6px;
-    border-left: 4px solid #f87171;
-    font-weight: 600;
-}
-
-.ari-step {
-    background-color: #f1f5f9;
-    padding: 6px 10px;
-    border-radius: 6px;
-    font-family: ui-monospace, monospace;
-    font-size: 0.85em;
-    margin-bottom: 6px;
-    border: 1px dashed #cbd5e1;
-}
-
-.frt-block {
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 10px;
-    margin-bottom: 8px;
-}
-
-.frt-title {
-    font-weight: 800;
-    font-size: 0.75em;
-    text-transform: uppercase;
-    margin-bottom: 6px;
-}
-
-.frt-content {
-    font-size: 0.95em;
-    line-height: 1.6;
-    white-space: pre-wrap;
-}
-
-.file-block {
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
     margin-bottom: 10px;
 }
-
-.file-header {
-    background: #f1f5f9;
-    padding: 6px 10px;
+.qc-line1 { font-size: 0.9em; font-weight: 700; color: #475569; }
+.qc-line2 { font-size: 1.15em; font-weight: 800; color: #0f172a; margin-top: 2px; }
+.qc-line3 {
+    margin-top: 6px;
+    font-family: monospace;
+    background: #e5e7eb;
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.8em;
     font-weight: 700;
-    font-size: 0.85em;
+    color: #1f2937;
 }
-
-.qi-item {
-    padding: 8px 12px;
-    border-left: 4px solid #9333ea;
-    font-family: Georgia, serif;
-    font-size: 0.95em;
-}
-
-.sat-box {
-    background: #f0f9ff;
-    border: 1px solid #bae6fd;
-    border-radius: 10px;
-    padding: 20px;
-}
-
+.trigger { background:#fff1f2; border-left:4px solid #ef4444; padding:6px 10px; margin-bottom:4px; font-weight:600; }
+.ari { background:#f3f4f6; border:1px dashed #cbd5f5; padding:6px; margin-bottom:4px; font-family:monospace; }
+.frt { border:1px solid #e5e7eb; border-left:4px solid #2563eb; padding:10px; margin-bottom:6px; background:white; }
+.qi-file { background:#f1f5f9; padding:6px 10px; font-weight:700; }
+.qi { border-left:3px solid #9333ea; padding:6px 10px; font-family:Georgia; }
 </style>
 """, unsafe_allow_html=True)
 
-# =============================================================================
-# SIDEBAR — PARAMÈTRES ACADÉMIQUES
-# =============================================================================
+# ==============================================================================
+# PROGRAMME FRANCE
+# ==============================================================================
+PROGRAMME = {
+    "MATHS": [
+        "SUITES NUMÉRIQUES",
+        "FONCTIONS",
+        "PROBABILITÉS",
+        "GÉOMÉTRIE"
+    ],
+    "PHYSIQUE": [
+        "CINÉMATIQUE",
+        "DYNAMIQUE",
+        "ONDES",
+        "ÉLECTRICITÉ"
+    ]
+}
+
+# ==============================================================================
+# DONNÉES QC (STUB UI)
+# ==============================================================================
+QC_DATA = [
+    {
+        "Chapitre": "SUITES NUMÉRIQUES",
+        "QC_ID": "QC-03",
+        "Titre": "Comment lever une indétermination (limite) ?",
+        "Score": 212,
+        "n_q": 25,
+        "Psi": 0.85,
+        "N_tot": 60,
+        "t_rec": 2.0,
+        "Triggers": [
+            "calculer la limite",
+            "limite quand n tend vers +infini",
+            "étudier la convergence"
+        ],
+        "ARI": [
+            "1. Identifier le terme dominant",
+            "2. Factoriser",
+            "3. Utiliser les limites usuelles",
+            "4. Conclure"
+        ],
+        "FRT": [
+            ("Quand utiliser", "Forme indéterminée infini / infini."),
+            ("Méthode", "Identifier le terme dominant.\nFactoriser.\nAppliquer les limites usuelles."),
+            ("Pièges", "Règle des signes sans factorisation."),
+            ("Conclusion", "La suite converge vers une limite finie.")
+        ],
+        "Qi": {
+            "Sujet_MATHS_INTERRO_2021.pdf": [
+                "Déterminer la limite. [Ref:94]",
+                "Calculer la limite en +∞. [Ref:77]"
+            ],
+            "Sujet_MATHS_BAC_2024.pdf": [
+                "Déterminer la limite. [Ref:71]",
+                "Calculer la limite en +∞. [Ref:63]"
+            ]
+        }
+    }
+]
+
+# ==============================================================================
+# SIDEBAR
+# ==============================================================================
 with st.sidebar:
     st.header("Paramètres Académiques")
     st.selectbox("Classe", ["Terminale"], disabled=True)
-    st.selectbox("Matière", ["MATHS", "PHYSIQUE"])
-    st.multiselect(
+    matiere = st.selectbox("Matière", ["MATHS", "PHYSIQUE"])
+    chapitres = st.multiselect(
         "Chapitres",
-        ["SUITES NUMÉRIQUES", "FONCTIONS", "PROBABILITÉS", "GÉOMÉTRIE"]
+        PROGRAMME[matiere],
+        default=[PROGRAMME[matiere][0]]
     )
 
-# =============================================================================
+# ==============================================================================
 # TABS
-# =============================================================================
+# ==============================================================================
 tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine", "✅ Onglet 2 : Audit"])
 
-# =============================================================================
-# ONGLET 1 — USINE (UI ONLY)
-# =============================================================================
+# ==============================================================================
+# ONGLET USINE
+# ==============================================================================
 with tab_usine:
-    st.subheader("🔌 Injection des sujets")
 
-    c1, c2 = st.columns([3, 1])
-    with c1:
-        st.text_area("URLs Sources (références)", "https://apmep.fr", height=70)
-    with c2:
-        st.number_input("Volume de sujets", 5, 500, 15, step=5)
-        st.button("🚀 LANCER L'USINE")
-
-    st.divider()
-
-    # -----------------------------
-    # SUJETS TRAITÉS (VIDE PAR DÉFAUT)
-    # -----------------------------
-    st.markdown("### 📥 Sujets traités")
-    st.dataframe(
-        pd.DataFrame(columns=["Fichier", "Nature", "Année", "Téléchargement"]),
-        use_container_width=True
-    )
-    st.caption("⚠️ Données affichées uniquement après branchement du moteur réel.")
+    st.subheader("🧪 Injection des sujets")
+    col1, col2 = st.columns([3,1])
+    with col1:
+        urls = st.text_area("URLs Sources (références)", "https://apmep.fr")
+    with col2:
+        volume = st.number_input("Volume de sujets", 5, 200, 15)
+        lancer = st.button("🚀 LANCER L'USINE")
 
     st.divider()
 
-    # -----------------------------
-    # BASE DE CONNAISSANCE QC (MOCK)
-    # -----------------------------
-    st.markdown("### 🧠 Base de Connaissance (QC)")
-    st.markdown("#### 📘 Chapitre : Suites Numériques")
+    st.subheader("📥 Sujets traités")
+    df_sources = pd.DataFrame([
+        {"Fichier":"Sujet_MATHS_INTERRO_2021.pdf","Nature":"INTERRO","Année":2021,"Source":"APMEP"},
+        {"Fichier":"Sujet_MATHS_BAC_2024.pdf","Nature":"BAC","Année":2024,"Source":"Banque BAC"}
+    ])
+    st.dataframe(df_sources, use_container_width=True)
 
-    # MOCK QC — STRUCTURE UNIQUEMENT
-    st.markdown("""
-    <div class="qc-header-box">
-        <div class="qc-chap-line">────────── Chapitre : Suites Numériques</div>
-        <div class="qc-title-line">
-            <span class="qc-id-pill">[ QC-03 ]</span>
-            <span class="qc-title-text">Comment lever une indétermination (limite)</span>
-        </div>
-        <div class="qc-meta-line">
-            Score(q)=— | n_q=— | Ψ=0.85 | N_tot=— | t_rec=—
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.divider()
+    st.subheader("🧠 Base de connaissance (QC)")
 
-    c1, c2, c3, c4 = st.columns(4)
+    for qc in QC_DATA:
+        if qc["Chapitre"] not in chapitres:
+            continue
 
-    with c1:
-        with st.expander("🔥 Déclencheurs"):
-            st.markdown("<div class='trigger-item'>« calculer la limite »</div>", unsafe_allow_html=True)
-            st.markdown("<div class='trigger-item'>« limite quand n → +∞ »</div>", unsafe_allow_html=True)
-
-    with c2:
-        with st.expander("⚙️ ARI"):
-            st.markdown("<div class='ari-step'>1. Identifier le terme dominant</div>", unsafe_allow_html=True)
-            st.markdown("<div class='ari-step'>2. Factoriser</div>", unsafe_allow_html=True)
-
-    with c3:
-        with st.expander("🧾 FRT"):
-            st.markdown("""
-            <div class="frt-block">
-                <div class="frt-title">Quand utiliser</div>
-                <div class="frt-content">Forme indéterminée ∞/∞</div>
+        st.markdown(f"""
+        <div class="qc-header">
+            <div class="qc-line1">Chapitre : {qc["Chapitre"]} &nbsp;&nbsp; [ {qc["QC_ID"]} ]</div>
+            <div class="qc-line2">{qc["Titre"]}</div>
+            <div class="qc-line3">
+            Score(q)={qc["Score"]} | n_q={qc["n_q"]} | Ψ={qc["Psi"]} | N_tot={qc["N_tot"]} | t_réc={qc["t_rec"]}
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
 
-    with c4:
-        with st.expander("📄 Qi"):
-            st.markdown("""
-            <div class="file-block">
-                <div class="file-header">📁 Sujet_MATHS_BAC_2022.pdf</div>
-                <div class="qi-item">Déterminer la limite de la suite.</div>
-            </div>
-            """, unsafe_allow_html=True)
+        c1, c2, c3, c4 = st.columns(4)
 
-    st.divider()
+        with c1:
+            st.markdown("**🔥 Déclencheurs**")
+            for t in qc["Triggers"]:
+                st.markdown(f"<div class='trigger'>{t}</div>", unsafe_allow_html=True)
 
-    # -----------------------------
-    # SATURATION — UI ONLY
-    # -----------------------------
-    st.markdown("### 📈 Analyse de saturation")
-    st.caption("Visualisation UI — aucune logique Granulo implémentée ici.")
+        with c2:
+            st.markdown("**⚙️ ARI**")
+            for a in qc["ARI"]:
+                st.markdown(f"<div class='ari'>{a}</div>", unsafe_allow_html=True)
 
-    st.line_chart(
-        pd.DataFrame({
-            "Sujets": [10, 30, 50, 70, 100],
-            "QC découvertes": [2, 4, 6, 6, 6]
-        }),
-        x="Sujets",
-        y="QC découvertes"
-    )
+        with c3:
+            st.markdown("**📘 FRT**")
+            for title, txt in qc["FRT"]:
+                st.markdown(f"<div class='frt'><b>{title}</b><br>{txt}</div>", unsafe_allow_html=True)
 
-# =============================================================================
-# ONGLET 2 — AUDIT (UI ONLY)
-# =============================================================================
+        with c4:
+            st.markdown(f"**📄 Qi ({qc['n_q']})**")
+            for f, qis in qc["Qi"].items():
+                st.markdown(f"<div class='qi-file'>📁 {f}</div>", unsafe_allow_html=True)
+                for q in qis:
+                    st.markdown(f"<div class='qi'>{q}</div>", unsafe_allow_html=True)
+
+# ==============================================================================
+# ONGLET AUDIT
+# ==============================================================================
 with tab_audit:
     st.subheader("🔍 Audit du moteur Granulo")
 
-    st.markdown("### ✅ Audit interne (sujet traité)")
-    st.info("Objectif : chaque Qi doit mapper vers UNE et UNE SEULE QC.")
-    st.metric("Résultat attendu", "100 %")
+    st.markdown("### ✅ Audit interne (sujet déjà traité)")
+    st.info("Objectif : vérifier que chaque Qi mappe vers UNE et UNE SEULE QC.\nRésultat attendu : **100 %**")
 
     st.divider()
 
-    st.markdown("### 🌍 Audit externe (sujet inconnu)")
+    st.markdown("### 🌍 Audit externe (sujet inconnu du moteur)")
     st.file_uploader("Importer un sujet PDF externe", type="pdf")
-    st.info("Indicateur cible : taux ≥ 95 %")
+    st.info("Indicateur clé : **taux ≥ 95 %**")
 
-    st.caption(
-        "SMAXIA — Console V31 | UI contractuelle. "
-        "Aucune logique métier, aucun calcul Granulo dans ce fichier."
-    )
+    st.caption("UI contractuelle — aucune logique métier implémentée ici.")
