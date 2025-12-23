@@ -7,28 +7,31 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse, urldefrag
-from html.parser import HTMLParser
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from html.parser import HTMLParser
+
 
 # =========================
 # CONFIG
 # =========================
-UA = "SMAXIA-GTE/1.3 (pdf-crawler+math-filter)"
+UA = "SMAXIA-GTE/1.4 (apmep-bfs+pdf+scoring)"
 REQ_TIMEOUT = 25
 MAX_PDF_MB = 25
 MIN_QI_CHARS = 18
 
-# Crawl (borné) : suffisamment profond pour atteindre "Année 2025/2024/..."
-CRAWL_MAX_PAGES = 80
+CRAWL_MAX_PAGES = 120
 CRAWL_MAX_DEPTH = 3
-MAX_PDF_LINKS_GLOBAL = 3000
+MAX_PDF_LINKS_GLOBAL = 4000
 MAX_HTML_BYTES = 2_000_000
 
-# Filtrage Suites (Terminale Maths)
+# Terminale Maths – Suites numériques
 SUITES_KEYWORDS: Set[str] = {
     "suite", "suites", "arithmétique", "arithmetique", "géométrique", "geometrique",
-    "raison", "u_n", "v_n", "récurrence", "recurrence", "terme", "général", "general",
+    "raison", "u_n", "v_n", "u(n)", "v(n)", "u0", "u1",
+    "récurrence", "recurrence", "terme", "général", "general",
     "monotone", "bornée", "bornee", "majorée", "majoree", "minorée", "minoree",
     "limite", "convergence"
 }
@@ -44,27 +47,37 @@ STOP_TOKENS = {
     "dans", "sur", "avec", "par", "au", "aux", "d", "l", "si", "que", "qui", "on",
 }
 
-# Exclusions par nom (fortement non sujet)
+# Exclusions fortes par nom
 UNWANTED_PDF_NAME_RE = re.compile(
-    r"(?:^|/)(pv\d+|compte[- ]rendu|convocation|bulletin|newsletter|sommaire|édito|edito|lettre|adh[eé]sion)",
+    r"(?:^|/)(pv\d+|compte[- ]rendu|convocation|adh[eé]sion|newsletter|sommaire|édito|edito|lettre)",
     re.IGNORECASE
 )
 
-# Indices texte "non-sujet" (associatif/administratif)
+# Indices "administratif / associatif"
 NON_SUBJECT_TEXT_RE = re.compile(
-    r"(proc[eè]s[- ]verbal|compte[- ]rendu|convocation|adh[eé]sion|association|r[eé]gionale|bureau|assembl[eé]e|tr[eé]sorier)",
+    r"(proc[eè]s[- ]verbal|compte[- ]rendu|convocation|adh[eé]sion|association|assembl[eé]e|bureau|tr[eé]sorier|secr[eé]taire)",
     re.IGNORECASE
 )
 
-# Indices texte "math sujet"
+# Indices "math sujet/corrigé"
 MATH_SIGNAL_RE = re.compile(
-    r"(exercice|question|sujet|corrig[eé]|sp[eé]cialit[eé]|math|u_n|v_n|r[eé]currence|suite|limite|convergence|monotone|major[eé]e|minor[eé]e|raison|terme g[eé]n[eé]ral)",
+    r"(exercice|question|sujet|corrig[eé]|sp[eé]cialit[eé]|math|"
+    r"fonction|d[eé]riv[eé]e|primitive|int[eé]grale|"
+    r"probabilit|loi|variance|esp[eé]rance|"
+    r"g[eé]om[eé]tr|vecteur|rep[eè]re|"
+    r"u_n|v_n|r[eé]currence|suite|limite|convergence|monotone|raison|terme g[eé]n[eé]ral)",
     re.IGNORECASE
 )
 
-# Détection de liens "PDF potentiels" même sans .pdf (SPIP etc.)
+# Détection “PDF candidate” même sans .pdf
 PDF_CANDIDATE_RE = re.compile(
-    r"(\.pdf\b|telecharger|t[eé]l[eé]charger|download|file=|fichier=|doc=|document=|pdf=)",
+    r"(\.pdf\b|/IMG/pdf/|telecharger|t[eé]l[eé]charger|download|file=|fichier=|doc=|document=|pdf=)",
+    re.IGNORECASE
+)
+
+# Extraction brute de liens PDF présents dans le HTML (pas seulement href)
+PDF_URL_IN_HTML_RE = re.compile(
+    r"(https?://[^\s\"\'<>]+?\.pdf(?:\?[^\s\"\'<>]+)?)",
     re.IGNORECASE
 )
 
@@ -74,6 +87,25 @@ DEFAULT_HEADERS = {
     "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
     "Connection": "keep-alive",
 }
+
+
+# =========================
+# SESSION HTTP ROBUSTE
+# =========================
+def _make_session() -> requests.Session:
+    s = requests.Session()
+    retry = Retry(
+        total=3,
+        backoff_factor=0.6,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET", "HEAD"]),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+    s.mount("http://", adapter)
+    s.mount("https://", adapter)
+    return s
+
 
 # =========================
 # OUTILS TEXTE
@@ -85,7 +117,7 @@ def _normalize(text: str) -> str:
 
 def _tokenize(text: str) -> List[str]:
     t = _normalize(text)
-    return re.findall(r"[a-zàâçéèêëîïôûùüÿñæœ0-9_]+", t)
+    return re.findall(r"[a-zàâçéèêëîïôûùüÿñæœ0-9_()]+", t)
 
 def _jaccard(a: List[str], b: List[str]) -> float:
     sa, sb = set(a), set(b)
@@ -97,7 +129,13 @@ def _jaccard(a: List[str], b: List[str]) -> float:
 
 def _contains_suites_signal(text: str) -> bool:
     toks = set(_tokenize(text))
-    return len(toks & SUITES_KEYWORDS) > 0
+    # signal “suite” fort
+    if len(toks & SUITES_KEYWORDS) > 0:
+        return True
+    # signal “u_n / v_n” en texte OCR
+    if re.search(r"\bu\s*[_]?\s*n\b|\bv\s*[_]?\s*n\b", text, re.IGNORECASE):
+        return True
+    return False
 
 def _extract_trigger_phrases(text: str) -> List[str]:
     t = _normalize(text)
@@ -123,8 +161,9 @@ def _top_keywords(texts: List[str], k: int = 6) -> List[str]:
             freq[tok] = freq.get(tok, 0) + 1
     return [w for w, _ in sorted(freq.items(), key=lambda x: x[1], reverse=True)[:k]]
 
+
 # =========================
-# HTML PARSER
+# HTML PARSER href
 # =========================
 class _HrefCollector(HTMLParser):
     def __init__(self) -> None:
@@ -138,15 +177,32 @@ class _HrefCollector(HTMLParser):
             if k.lower() == "href" and v:
                 self.hrefs.append(v.strip())
 
-def _safe_get_html(url: str) -> Optional[Tuple[str, str]]:
+
+def _same_site(base: str, other: str) -> bool:
     """
-    Retourne (final_url, html) ou None
+    Autorise les sous-domaines APMEP (apmep.fr, www.apmep.fr, partage.apmep...).
     """
     try:
-        r = requests.get(url, headers=DEFAULT_HEADERS, timeout=REQ_TIMEOUT, allow_redirects=True)
-        r.raise_for_status()
+        b = urlparse(base).netloc.lower()
+        o = urlparse(other).netloc.lower()
+        if not b or not o:
+            return False
+        if b == o:
+            return True
+        if b.endswith("apmep.fr") and o.endswith("apmep.fr"):
+            return True
+        return False
+    except Exception:
+        return False
+
+
+def _safe_get_html(session: requests.Session, url: str) -> Optional[Tuple[str, str]]:
+    try:
+        r = session.get(url, headers=DEFAULT_HEADERS, timeout=REQ_TIMEOUT, allow_redirects=True)
+        if r.status_code >= 400:
+            return None
         final_url = r.url
-        txt = r.text
+        txt = r.text or ""
         b = txt.encode("utf-8", errors="ignore")
         if len(b) > MAX_HTML_BYTES:
             txt = b[:MAX_HTML_BYTES].decode("utf-8", errors="ignore")
@@ -154,29 +210,27 @@ def _safe_get_html(url: str) -> Optional[Tuple[str, str]]:
     except Exception:
         return None
 
-def _same_host(a: str, b: str) -> bool:
-    try:
-        return urlparse(a).netloc == urlparse(b).netloc
-    except Exception:
-        return False
 
 def _url_priority(u: str) -> int:
-    """
-    Priorise les pages pertinentes : Annales/Terminale/Bac/Sujets/Spécialité/Maths
-    """
     uu = u.lower()
     score = 0
-    for kw in ["annale", "annales", "terminale", "baccalaureat", "bac", "sujet", "sujets", "corrige", "corrigé", "specialite", "spécialité", "math"]:
+    for kw in [
+        "annale", "annales", "terminale", "baccalaureat", "bac",
+        "sujet", "sujets", "corrige", "corrigé",
+        "specialite", "spécialité", "math"
+    ]:
         if kw in uu:
-            score += 3
-    # pages d'année
+            score += 4
     if re.search(r"\b(19\d{2}|20\d{2})\b", uu):
         score += 2
-    return -score  # plus petit = plus prioritaire (tri croissant)
+    return -score
+
 
 def _extract_links(base_url: str, html: str) -> Tuple[List[str], List[str]]:
     """
-    Retourne (pages_internes, pdf_candidates)
+    Retourne (pages, pdf_candidates)
+    - pages : liens internes (même site)
+    - pdf_candidates : liens candidats PDF (href + URLs PDF brutes dans le HTML)
     """
     parser = _HrefCollector()
     parser.feed(html)
@@ -185,50 +239,60 @@ def _extract_links(base_url: str, html: str) -> Tuple[List[str], List[str]]:
     pages: List[str] = []
     pdfs: List[str] = []
 
+    # 1) href
     for href in hrefs:
-        if not href:
-            continue
-        # remove fragment (#...)
-        href, _frag = urldefrag(href)
+        href, _ = urldefrag(href)
         if not href:
             continue
         full = urljoin(base_url, href)
 
-        # candidat pdf ?
         if PDF_CANDIDATE_RE.search(full):
             pdfs.append(full)
-            continue
+        else:
+            pages.append(full)
 
-        # page interne
-        pages.append(full)
+    # 2) PDF URLs brutes (souvent présentes dans des scripts / JSON)
+    for m in PDF_URL_IN_HTML_RE.finditer(html):
+        pdfs.append(m.group(1))
 
-    # filtrer pages internes (même host)
-    pages2 = [p for p in pages if _same_host(base_url, p)]
-    # dédoublonnage ordre
+    # nettoyage
     def _dedup(xs: List[str]) -> List[str]:
         out, seen = [], set()
         for x in xs:
+            x, _ = urldefrag(x)
+            if not x:
+                continue
             if x not in seen:
                 seen.add(x)
                 out.append(x)
         return out
 
-    return _dedup(pages2), _dedup(pdfs)
+    pages = [p for p in pages if _same_site(base_url, p)]
+    pages = _dedup(pages)
+    pdfs = _dedup(pdfs)
+
+    return pages, pdfs
+
 
 # =========================
-# PDF VALIDATION + DOWNLOAD
+# PDF DOWNLOAD + VALIDATION
 # =========================
 def _looks_like_pdf(data: bytes) -> bool:
     return data[:4] == b"%PDF" or b"%PDF" in data[:1024]
 
-def download_pdf(url: str) -> Optional[bytes]:
-    # Exclure par nom
+def download_pdf(session: requests.Session, url: str) -> Optional[bytes]:
     if UNWANTED_PDF_NAME_RE.search(url):
         return None
-
     try:
-        r = requests.get(url, headers=DEFAULT_HEADERS, timeout=REQ_TIMEOUT, stream=True, allow_redirects=True)
-        r.raise_for_status()
+        r = session.get(
+            url,
+            headers={**DEFAULT_HEADERS, "Accept": "application/pdf,*/*"},
+            timeout=REQ_TIMEOUT,
+            stream=True,
+            allow_redirects=True
+        )
+        if r.status_code >= 400:
+            return None
 
         cl = r.headers.get("Content-Length")
         if cl:
@@ -242,11 +306,9 @@ def download_pdf(url: str) -> Optional[bytes]:
         if len(data) > MAX_PDF_MB * 1024 * 1024:
             return None
 
-        # Certains liens "telecharger" renvoient du HTML (erreur ou page)
         if not _looks_like_pdf(data):
             return None
 
-        # réalignement sur %PDF si nécessaire
         if data[:4] != b"%PDF":
             pos = data.find(b"%PDF")
             if pos >= 0:
@@ -258,8 +320,9 @@ def download_pdf(url: str) -> Optional[bytes]:
     except Exception:
         return None
 
+
 # =========================
-# TEXT EXTRACTION (PDF réel)
+# TEXT EXTRACTION (PDF RÉEL)
 # =========================
 def extract_text_from_pdf_bytes(pdf_bytes: bytes, max_pages: int = 25) -> str:
     # pdfplumber
@@ -290,69 +353,118 @@ def extract_text_from_pdf_bytes(pdf_bytes: bytes, max_pages: int = 25) -> str:
     except Exception:
         return ""
 
-def _is_probably_math_subject(text: str) -> bool:
+
+def _is_probably_math_subject(text: str, filename: str = "") -> Tuple[bool, Dict]:
     """
-    Nouveau filtre : score, pas rejet binaire.
-    - Un vrai sujet peut contenir des mentions APMEP/régionale dans l’entête : on ne rejette plus pour ça.
+    Nouveau : scoring permissif.
+    Retour (ok, debug_metrics).
     """
-    if not text or len(text.strip()) < 200:
-        return False
+    t = text or ""
+    fn = (filename or "").lower()
 
-    math_hits = len(MATH_SIGNAL_RE.findall(text))
-    non_hits = len(NON_SUBJECT_TEXT_RE.findall(text))
+    math_hits = len(MATH_SIGNAL_RE.findall(t))
+    non_hits = len(NON_SUBJECT_TEXT_RE.findall(t))
+    ex_hits = len(re.findall(r"\bexercice\b", t, re.IGNORECASE))
+    q_hits = len(re.findall(r"\bquestion\b", t, re.IGNORECASE))
 
-    # règle simple : assez de signaux maths
-    if math_hits >= 10:
-        return True
+    # score
+    score = 0
+    score += min(20, math_hits) * 2
+    score += min(10, ex_hits) * 4
+    score += min(10, q_hits) * 3
+    score -= min(20, non_hits) * 3
 
-    # règle équilibrée : maths dominent
-    if math_hits >= 6 and (math_hits - non_hits) >= 4:
-        return True
+    # bonus filename
+    if any(k in fn for k in ["terminale", "ts", "specialite", "spécialité", "bac", "sujet", "corrige", "corrig"]):
+        score += 6
+    if re.search(r"(19\d{2}|20\d{2})", fn):
+        score += 2
 
-    return False
+    # Règle d’acceptation : on accepte dès qu’il y a des indices de sujet
+    ok = False
+    if ex_hits >= 1 and math_hits >= 4:
+        ok = True
+    elif q_hits >= 2 and math_hits >= 4:
+        ok = True
+    elif score >= 18:
+        ok = True
+
+    debug = {
+        "math_hits": math_hits,
+        "non_hits": non_hits,
+        "ex_hits": ex_hits,
+        "q_hits": q_hits,
+        "score": score
+    }
+    return ok, debug
+
 
 # =========================
-# Qi extraction
+# EXTRACTION Qi (marqueurs)
 # =========================
+_MARKER_RE = re.compile(
+    r"^\s*(exercice\s*\d+|question\s*\d+|\d+\s*[\).\:-])\s*",
+    re.IGNORECASE
+)
+
+_VERB_RE = re.compile(
+    r"\b(calculer|déterminer|determiner|montrer|démontrer|demontrer|justifier|étudier|etudier|prouver)\b",
+    re.IGNORECASE
+)
+
 def extract_qi_from_text(text: str) -> List[str]:
-    raw = text.replace("\r", "\n")
-    raw = re.sub(r"\n{2,}", "\n\n", raw)
-    blocks = re.split(r"\n\s*\n", raw)
+    raw = (text or "").replace("\r", "\n")
+    raw = re.sub(r"\n{3,}", "\n\n", raw)
 
-    candidates = []
-    for b in blocks:
-        b2 = b.strip()
-        if len(b2) < MIN_QI_CHARS:
+    lines = [ln.strip() for ln in raw.split("\n")]
+
+    # segmentation par marqueurs
+    segments: List[str] = []
+    cur: List[str] = []
+    saw_marker = False
+
+    for ln in lines:
+        if not ln:
+            continue
+        if _MARKER_RE.match(ln):
+            saw_marker = True
+            if cur:
+                segments.append(" ".join(cur).strip())
+                cur = []
+            cur.append(ln)
+        else:
+            cur.append(ln)
+
+    if cur:
+        segments.append(" ".join(cur).strip())
+
+    # fallback si aucun marqueur
+    if not saw_marker:
+        blocks = re.split(r"\n\s*\n", raw)
+        segments = [re.sub(r"\s+", " ", b).strip() for b in blocks if len(b.strip()) >= MIN_QI_CHARS]
+
+    # filtrage Qi candidates
+    qi: List[str] = []
+    for seg in segments:
+        s = re.sub(r"\s+", " ", seg).strip()
+        if len(s) < MIN_QI_CHARS:
             continue
 
-        if re.search(r"\b(exercice|question)\b", b2, re.IGNORECASE):
-            candidates.append(b2)
-            continue
-
-        if re.search(r"\b(calculer|déterminer|determiner|montrer|démontrer|demontrer|justifier|étudier|etudier|prouver)\b", b2, re.IGNORECASE):
-            candidates.append(b2)
-            continue
-
-        if _contains_suites_signal(b2):
-            candidates.append(b2)
-
-    qi = []
-    for c in candidates:
-        c = re.sub(r"\s+", " ", c).strip()
-        if len(c) > 420:
-            c = c[:420].rsplit(" ", 1)[0] + "…"
-        if len(c) >= MIN_QI_CHARS:
-            qi.append(c)
+        # critères : verbes ou suites
+        if _VERB_RE.search(s) or _contains_suites_signal(s):
+            if len(s) > 520:
+                s = s[:520].rsplit(" ", 1)[0] + "…"
+            qi.append(s)
 
     # dédoublonnage
-    seen = set()
-    out = []
+    out, seen = [], set()
     for x in qi:
         k = _normalize(x)
         if k not in seen:
             seen.add(k)
             out.append(x)
     return out
+
 
 # =========================
 # QC clustering + FRT/ARI
@@ -374,7 +486,7 @@ def _build_frt(qi_texts: List[str], triggers: List[str]) -> Dict[str, str]:
 
     is_arith = "arithm" in txt
     is_geo = ("géométr" in txt) or ("geomet" in txt)
-    is_recur = ("récurr" in txt) or ("recurr" in txt) or ("u_{n+1}" in txt) or ("un+1" in txt)
+    is_recur = ("récurr" in txt) or ("recurr" in txt) or ("u(n+1)" in txt) or ("u_{n+1}" in txt)
     wants_limit = ("limite" in txt) or ("converg" in txt)
 
     if is_arith:
@@ -490,174 +602,38 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.28) -> List[Dic
 
     return qc_out
 
+
 # =========================
 # PDF DISCOVERY (BFS)
 # =========================
-def discover_pdf_links_bfs(start_urls: List[str], soft_limit: int) -> List[str]:
-    """
-    Crawl BFS borné :
-    - collecte PDF candidates sur toutes pages internes
-    - profondeur jusqu’à CRAWL_MAX_DEPTH
-    - puis dédoublonnage + filtre par nom
-    """
+def discover_pdf_links_bfs(session: requests.Session, start_urls: List[str], soft_limit: int) -> Tuple[List[str], Dict]:
     start_urls = [u.strip() for u in start_urls if u and u.strip()]
     if not start_urls:
         start_urls = ["https://apmep.fr"]
 
-    # si racine APMEP : on ajoute la page Annales Terminale (vue sur votre capture)
+    # seed APMEP "Annales Terminale"
     seeds = []
     for u in start_urls:
         seeds.append(u)
-        if "apmep.fr" in urlparse(u).netloc and urlparse(u).path.strip("/") == "":
+        if "apmep.fr" in urlparse(u).netloc.lower() and urlparse(u).path.strip("/") == "":
             seeds.append("https://apmep.fr/Annales-Terminale-Generale")
-    # dédoublonnage
-    q = []
+
+    # queue
+    q: List[Tuple[str, int]] = []
     seen_seed = set()
     for s in seeds:
-        if s not in seen_seed:
+        s, _ = urldefrag(s)
+        if s and s not in seen_seed:
             seen_seed.add(s)
             q.append((s, 0))
 
-    visited_pages = set()
-    pdf_links: List[str] = []
+    visited = set()
+    pdfs: List[str] = []
+    pages_crawled = 0
 
-    while q and len(visited_pages) < CRAWL_MAX_PAGES and len(pdf_links) < MAX_PDF_LINKS_GLOBAL:
+    while q and pages_crawled < CRAWL_MAX_PAGES and len(pdfs) < MAX_PDF_LINKS_GLOBAL:
         q.sort(key=lambda x: _url_priority(x[0]))
         url, depth = q.pop(0)
 
-        if url in visited_pages:
+        if url in visited:
             continue
-        visited_pages.add(url)
-
-        got = _safe_get_html(url)
-        if not got:
-            continue
-        final_url, html = got
-
-        pages, pdfs = _extract_links(final_url, html)
-        pdf_links.extend(pdfs)
-
-        if depth < CRAWL_MAX_DEPTH:
-            for p in pages:
-                if p not in visited_pages:
-                    q.append((p, depth + 1))
-
-        # si on a déjà beaucoup de PDFs, on peut s’arrêter tôt
-        if len(pdf_links) >= max(soft_limit * 15, 200):
-            break
-
-    # nettoyage + filtre
-    cleaned = []
-    seen = set()
-    for link in pdf_links:
-        link, _ = urldefrag(link)
-        if not link:
-            continue
-        if UNWANTED_PDF_NAME_RE.search(link):
-            continue
-        if link not in seen:
-            seen.add(link)
-            cleaned.append(link)
-
-    return cleaned[:MAX_PDF_LINKS_GLOBAL]
-
-# =========================
-# SATURATION
-# =========================
-def compute_saturation(history_counts: List[int]) -> List[Dict]:
-    return [{"Nombre de sujets injectés": i + 1, "Nombre de QC découvertes": v} for i, v in enumerate(history_counts)]
-
-# =========================
-# API PRINCIPALE POUR UI
-# =========================
-def run_granulo_test(urls: List[str], volume: int) -> Dict:
-    """
-    Retour dict UI:
-    - sujets: rows
-    - qc: QC list
-    - saturation: points
-    - audit: metrics
-    """
-    start = time.time()
-    volume = int(volume) if volume else 15
-    urls = [u.strip() for u in (urls or []) if u and u.strip()]
-
-    # 1) discovery PDF links
-    pdf_candidates = discover_pdf_links_bfs(urls, soft_limit=volume)
-
-    sujets_rows = []
-    all_qis: List[QiItem] = []
-    qc_history = []
-
-    rejected_pdf_download = 0
-    rejected_pdf_no_text = 0
-    rejected_pdf_non_subject = 0
-    rejected_pdf_no_qi = 0
-
-    # 2) iterate PDFs until "volume sujets OK"
-    for candidate in pdf_candidates:
-        pdf_bytes = download_pdf(candidate)
-        if not pdf_bytes:
-            rejected_pdf_download += 1
-            continue
-
-        text = extract_text_from_pdf_bytes(pdf_bytes)
-        if not text.strip():
-            rejected_pdf_no_text += 1
-            continue
-
-        if not _is_probably_math_subject(text):
-            rejected_pdf_non_subject += 1
-            continue
-
-        qi_texts = extract_qi_from_text(text)
-        qi_texts = [q for q in qi_texts if _contains_suites_signal(q)]
-        if not qi_texts:
-            rejected_pdf_no_qi += 1
-            continue
-
-        subject_file = candidate.split("/")[-1].split("?")[0]
-        source_host = urlparse(candidate).netloc
-
-        m_year = re.search(r"(19\d{2}|20\d{2})", subject_file)
-        year = int(m_year.group(1)) if m_year else None
-
-        sujets_rows.append({
-            "Fichier": subject_file,
-            "Nature": "SUJET/CORRIGÉ (probable)",
-            "Année": year,
-            "Source": source_host,
-        })
-
-        subject_id = f"S{len(sujets_rows):04d}"
-        for q in qi_texts:
-            all_qis.append(QiItem(subject_id=subject_id, subject_file=subject_file, text=q))
-
-        qc_current = cluster_qi_to_qc(all_qis)
-        qc_history.append(len(qc_current))
-
-        if len(sujets_rows) >= volume:
-            break
-
-    qc_list = cluster_qi_to_qc(all_qis)
-    sat_points = compute_saturation(qc_history)
-    elapsed = round(time.time() - start, 2)
-
-    return {
-        "sujets": sujets_rows,
-        "qc": qc_list,
-        "saturation": sat_points,
-        "audit": {
-            "n_urls": len(urls),
-            "n_pdf_links": len(pdf_candidates),
-            "n_subjects_ok": len(sujets_rows),
-            "n_qi": len(all_qis),
-            "n_qc": len(qc_list),
-            "rejected_pdf_download": rejected_pdf_download,
-            "rejected_pdf_no_text": rejected_pdf_no_text,
-            "rejected_pdf_non_subject": rejected_pdf_non_subject,
-            "rejected_pdf_no_qi": rejected_pdf_no_qi,
-            "elapsed_s": elapsed,
-            "binary_qi_to_qc_unmapped_exists": False,  # par construction du clustering
-        }
-    }
