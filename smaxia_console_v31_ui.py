@@ -1,36 +1,27 @@
 # smaxia_console_v31_ui.py
-# SMAXIA GRANULO CONSOLE v3.1
+# SMAXIA GRANULO CONSOLE v3.1 — STREAMLIT
 
-from smaxia_granulo_engine_test import run_engine
+import streamlit as st
+from smaxia_granulo_engine_test import run_granulo_test
 
-def display_qc(qc_data):
-    print("\n==============================")
-    print(" QC — QUESTION CLÉ")
-    print("==============================")
+st.set_page_config(page_title="SMAXIA Granulo GTE", layout="wide")
 
-    for i, q in enumerate(qc_data["qc"], 1):
-        print(f"Qi {i}: {q}")
+st.title("🧠 SMAXIA — Granulo Test Engine")
+st.caption("Extraction réelle → Qi → QC → FRT (preuves uniquement)")
 
-    frt = qc_data["frt"]
-
-    print("\n--- FRT ---")
-    print(f"Déclencheurs : {', '.join(frt['declencheurs'])}")
-    print(f"ARI : {frt['ari']}")
-    print(f"Nombre Qi : {frt['n_q']}")
-    print(f"Score : {frt['score']}")
-
-def main():
-    print("=== SMAXIA GRANULO ENGINE — TEST ===")
-    results = run_engine()
+if st.button("🚀 Lancer le moteur Granulo"):
+    with st.spinner("Extraction des PDFs et calcul en cours..."):
+        results = run_granulo_test()
 
     if not results:
-        print("❌ Aucune QC générée — vérifier les sources")
-        return
+        st.error("❌ Aucune QC générée — vérifier les sources")
+    else:
+        st.success(f"✅ QC générées : {len(results)}")
 
-    print(f"✅ QC totales générées : {len(results)}")
+        for i, r in enumerate(results[:5], 1):
+            with st.expander(f"QC {i}"):
+                for j, qi in enumerate(r["qc"], 1):
+                    st.write(f"**Qi {j}** : {qi}")
 
-    for qc in results[:3]:
-        display_qc(qc)
-
-if __name__ == "__main__":
-    main()
+                st.markdown("### FRT")
+                st.json(r["frt"])
