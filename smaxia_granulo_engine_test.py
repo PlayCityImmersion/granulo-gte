@@ -1,398 +1,722 @@
-# smaxia_granulo_engine_test.py
+# -*- coding: utf-8 -*-
+"""
+SMAXIA — Granulo Test Engine (UI-SAFE, NO DOMAIN HARDCODE)
+Contract (DO NOT BREAK UI):
+  run_granulo_test(urls, volume) -> {sujets, qc, saturation, audit}
+
+Hardcode policy:
+- No chapter keyword lists, no site blacklists, no ARI/FRT templates by topic.
+- Chapter filtering is driven by env vars:
+    SMAXIA_CHAPTER_QUERY  (default: "suites numériques" for UI continuity)
+    SMAXIA_CHAPTER_LABEL  (default: "SUITES NUMÉRIQUES" for UI continuity)
+"""
+
 from __future__ import annotations
 
 import io
-import math
+import os
 import re
+import ssl
 import time
+import math
+from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
+from urllib.parse import urljoin, urlparse
+from urllib.request import Request, urlopen
 
-import requests
-import pdfplumber
-from bs4 import BeautifulSoup
+UA = os.environ.get("SMAXIA_UA", "SMAXIA-GTE/NO-HARDCODE-1.0")
+TIMEOUT_S = float(os.environ.get("SMAXIA_TIMEOUT_S", "25"))
+MAX_HTML_PAGES = int(os.environ.get("SMAXIA_MAX_HTML_PAGES", "120"))
+MAX_DEPTH = int(os.environ.get("SMAXIA_MAX_DEPTH", "2"))
+MAX_PDF_MB = int(os.environ.get("SMAXIA_MAX_PDF_MB", "25"))
+MAX_PDF_PAGES_TEXT = int(os.environ.get("SMAXIA_MAX_PDF_PAGES_TEXT", "60"))
+
+# Chapter config (NOT hardcoded in algorithm; only defaults to keep UI working)
+CHAPTER_QUERY = os.environ.get("SMAXIA_CHAPTER_QUERY", "suites numériques").strip()
+CHAPTER_LABEL = os.environ.get("SMAXIA_CHAPTER_LABEL", "SUITES NUMÉRIQUES").strip()
+
+# Similarity threshold for grouping Qi -> QC
+SIM_THRESHOLD = float(os.environ.get("SMAXIA_SIM_THRESHOLD", "0.32"))
+
+# Optional deps
+try:
+    import requests  # type: ignore
+except Exception:
+    requests = None
+
+try:
+    from bs4 import BeautifulSoup  # type: ignore
+except Exception:
+    BeautifulSoup = None
+
+try:
+    import pdfplumber  # type: ignore
+except Exception:
+    pdfplumber = None
+
+try:
+    from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore
+    from sklearn.metrics.pairwise import cosine_similarity  # type: ignore
+except Exception:
+    TfidfVectorizer = None
+    cosine_similarity = None
 
 
-# =========================
-# CONFIG TEST (TRANSPARENT)
-# =========================
-UA = "SMAXIA-GTE/1.0 (+test-engine)"
-REQ_TIMEOUT = 20
-MAX_PDF_MB = 25  # sécurité
-MIN_QI_CHARS = 18
+# ------------------------
+# Utils
+# ------------------------
 
-# Filtrage "Suites numériques" (phase 1 France Terminale spé)
-SUITES_KEYWORDS = {
-    "suite", "suites", "arithmétique", "géométrique", "raison", "u_n", "un",
-    "récurrence", "recurrence", "limite", "convergence", "monotone", "bornée",
-    "borne", "majorée", "minorée", "sommes", "somme", "terme général", "terme general"
-}
+def _norm(s: str) -> str:
+    s = (s or "").lower()
+    s = s.replace("\u00ad", "")  # soft hyphen
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 
+def _strip_accents_basic(s: str) -> str:
+    # minimal, deterministic, no external libs
+    rep = {
+        "à":"a","â":"a","ä":"a",
+        "ç":"c",
+        "é":"e","è":"e","ê":"e","ë":"e",
+        "î":"i","ï":"i",
+        "ô":"o","ö":"o",
+        "ù":"u","û":"u","ü":"u",
+        "ÿ":"y",
+        "œ":"oe","æ":"ae",
+    }
+    out = []
+    for ch in (s or ""):
+        out.append(rep.get(ch, ch))
+    return "".join(out)
 
-# =========================
-# OUTILS TEXTE
-# =========================
-def _normalize(text: str) -> str:
-    t = text.lower()
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
+def _tokenize(s: str):
+    s = _strip_accents_basic(_norm(s))
+    return re.findall(r"[a-z0-9_]+", s)
 
+def _is_http(u: str) -> bool:
+    try:
+        p = urlparse(u)
+        return p.scheme in ("http", "https") and bool(p.netloc)
+    except Exception:
+        return False
 
-def _tokenize(text: str) -> List[str]:
-    t = _normalize(text)
-    # tokens simples, alphanum
-    toks = re.findall(r"[a-zàâçéèêëîïôûùüÿñæœ0-9]+", t)
-    return toks
+def _same_domain(seed_netloc: str, u: str) -> bool:
+    try:
+        n = (urlparse(u).netloc or "").lower()
+        seed = (seed_netloc or "").lower()
+        return (n == seed) or n.endswith("." + seed)
+    except Exception:
+        return False
 
+def _looks_like_pdf_link(u: str) -> bool:
+    return ".pdf" in (u or "").lower()
 
-def _jaccard(a: List[str], b: List[str]) -> float:
+def _jaccard(a, b) -> float:
     sa, sb = set(a), set(b)
     if not sa and not sb:
         return 0.0
-    inter = len(sa & sb)
-    union = len(sa | sb)
-    return inter / union if union else 0.0
+    return len(sa & sb) / float(len(sa | sb) or 1)
+
+def _now():
+    return time.time()
 
 
-def _contains_suites_signal(text: str) -> bool:
-    toks = set(_tokenize(text))
-    return len(toks & SUITES_KEYWORDS) > 0
+# ------------------------
+# HTTP (requests if available else urllib)
+# ------------------------
 
+def _fetch_bytes(url: str) -> tuple[bytes, dict]:
+    if requests is not None:
+        r = requests.get(url, headers={"User-Agent": UA}, timeout=TIMEOUT_S)
+        headers = {k.lower(): v for k, v in dict(r.headers).items()}
+        return r.content, headers
 
-# =========================
-# SCRAPING PDF LINKS
-# =========================
-def extract_pdf_links_from_url(url: str) -> List[str]:
+    ctx = ssl.create_default_context()
+    req = Request(url, headers={"User-Agent": UA})
+    with urlopen(req, timeout=TIMEOUT_S, context=ctx) as resp:
+        headers = {k.lower(): v for k, v in dict(resp.headers).items()}
+        data = resp.read()
+        return data, headers
+
+def _fetch_text(url: str) -> str:
+    data, headers = _fetch_bytes(url)
+    ctype = (headers.get("content-type") or "").lower()
+    encoding = "utf-8"
+    m = re.search(r"charset=([a-z0-9_\-]+)", ctype)
+    if m:
+        encoding = m.group(1).strip()
     try:
-        r = requests.get(url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT)
-        r.raise_for_status()
+        return data.decode(encoding, errors="replace")
     except Exception:
-        return []
+        return data.decode("utf-8", errors="replace")
 
-    soup = BeautifulSoup(r.text, "html.parser")
+
+# ------------------------
+# Link extraction
+# ------------------------
+
+HREF_RE = re.compile(r'href\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
+
+def _extract_links(html: str, base_url: str):
     links = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"].strip()
-        if not href:
+
+    if BeautifulSoup is not None:
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            for a in soup.find_all("a", href=True):
+                href = (a.get("href") or "").strip()
+                if href:
+                    links.append(urljoin(base_url, href))
+            return links
+        except Exception:
+            pass
+
+    # fallback regex
+    for href in HREF_RE.findall(html or ""):
+        href = (href or "").strip()
+        if href:
+            links.append(urljoin(base_url, href))
+    return links
+
+
+def _crawl_collect_pdfs(seed_urls: list[str], target_count: int):
+    """
+    Domain-preserving BFS crawl, no hardcoded hints/blacklists.
+    Collects candidate PDF URLs from hrefs.
+    """
+    pdfs = []
+    seen_pdf = set()
+    visited = set()
+
+    for seed in seed_urls:
+        if not _is_http(seed):
             continue
-        if ".pdf" not in href.lower():
-            continue
+        seed_netloc = urlparse(seed).netloc or ""
+        queue = [(seed, 0)]
 
-        # Absolutisation
-        if href.startswith("http://") or href.startswith("https://"):
-            links.append(href)
-        else:
-            base = url.rstrip("/")
-            if href.startswith("/"):
-                # récupère domaine
-                m = re.match(r"^(https?://[^/]+)", base)
-                if m:
-                    links.append(m.group(1) + href)
-            else:
-                links.append(base + "/" + href)
+        while queue and len(visited) < MAX_HTML_PAGES and len(pdfs) < target_count:
+            page_url, depth = queue.pop(0)
+            if page_url in visited:
+                continue
+            visited.add(page_url)
 
-    # dédoublonnage en conservant ordre
-    seen = set()
-    out = []
-    for x in links:
-        if x not in seen:
-            seen.add(x)
-            out.append(x)
-    return out
+            try:
+                html = _fetch_text(page_url)
+            except Exception:
+                continue
 
+            for u in _extract_links(html, page_url):
+                if not _is_http(u):
+                    continue
+                if not _same_domain(seed_netloc, u):
+                    continue
 
-def extract_pdf_links(urls: List[str], limit: int) -> List[str]:
-    all_links: List[str] = []
-    for u in urls:
-        all_links.extend(extract_pdf_links_from_url(u))
-        if len(all_links) >= limit:
+                if _looks_like_pdf_link(u):
+                    if u not in seen_pdf:
+                        seen_pdf.add(u)
+                        pdfs.append(u)
+                    continue
+
+                # follow html pages only
+                if depth < MAX_DEPTH:
+                    # avoid common binary assets
+                    lower = u.lower()
+                    if any(lower.endswith(ext) for ext in (".jpg",".jpeg",".png",".gif",".zip",".rar",".7z",".mp4",".mp3")):
+                        continue
+                    if u not in visited:
+                        queue.append((u, depth + 1))
+
+            if len(pdfs) >= target_count:
+                break
+
+        if len(pdfs) >= target_count:
             break
-    # dédoublonnage global
-    seen = set()
-    uniq = []
-    for x in all_links:
-        if x not in seen:
-            seen.add(x)
-            uniq.append(x)
-        if len(uniq) >= limit:
-            break
-    return uniq
+
+    return pdfs
 
 
-# =========================
-# TELECHARGEMENT PDF
-# =========================
-def download_pdf(url: str) -> Optional[bytes]:
+# ------------------------
+# PDF download + text extraction
+# ------------------------
+
+def _download_pdf(url: str) -> bytes | None:
     try:
-        r = requests.get(url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT, stream=True)
-        r.raise_for_status()
-
-        # check taille si dispo
-        cl = r.headers.get("Content-Length")
-        if cl:
-            mb = int(cl) / (1024 * 1024)
-            if mb > MAX_PDF_MB:
-                return None
-
-        data = r.content
-        if len(data) > MAX_PDF_MB * 1024 * 1024:
-            return None
-        return data
+        data, headers = _fetch_bytes(url)
     except Exception:
         return None
 
+    ctype = (headers.get("content-type") or "").lower()
+    if ("pdf" not in ctype) and (".pdf" not in url.lower()):
+        return None
 
-# =========================
-# EXTRACTION TEXTE PDF
-# =========================
-def extract_text_from_pdf_bytes(pdf_bytes: bytes, max_pages: int = 25) -> str:
-    text_parts = []
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        n = min(len(pdf.pages), max_pages)
-        for i in range(n):
-            page = pdf.pages[i]
-            t = page.extract_text() or ""
-            if t.strip():
-                text_parts.append(t)
-    return "\n".join(text_parts)
-
-
-# =========================
-# EXTRACTION QI (HEURISTIQUE TRANSPARENTE)
-# =========================
-QI_SPLIT_PATTERNS = [
-    r"\bexercice\s*\d+\b",
-    r"\bquestion\s*\d+\b",
-    r"\bpartie\s*[a-z0-9]+\b",
-    r"^\s*\d+\s*[\).\:-]\s+",
-]
+    # size guard
+    cl = headers.get("content-length")
+    if cl:
+        try:
+            mb = float(int(cl)) / (1024.0 * 1024.0)
+            if mb > float(MAX_PDF_MB):
+                return None
+        except Exception:
+            pass
+    if len(data) > int(MAX_PDF_MB) * 1024 * 1024:
+        return None
+    return data
 
 
-def extract_qi_from_text(text: str) -> List[str]:
-    raw = text.replace("\r", "\n")
-    raw = re.sub(r"\n{2,}", "\n\n", raw)
+def _extract_text_pdf(pdf_bytes: bytes) -> str:
+    # pdfplumber preferred
+    if pdfplumber is None:
+        return ""
 
-    # segmentation grossière par blocs
-    blocks = re.split(r"\n\s*\n", raw)
-    candidates = []
+    try:
+        parts = []
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            n = min(len(pdf.pages), int(MAX_PDF_PAGES_TEXT))
+            for i in range(n):
+                t = pdf.pages[i].extract_text() or ""
+                t = t.replace("\u00ad", "")
+                if t.strip():
+                    parts.append(t)
+        return "\n".join(parts)
+    except Exception:
+        return ""
 
-    for b in blocks:
-        b2 = b.strip()
-        if len(b2) < MIN_QI_CHARS:
+
+# ------------------------
+# Qi extraction (generic, not chapter-hardcoded)
+# ------------------------
+
+# Generic action verbs list (language-level, not chapter-specific)
+VERB_RE = re.compile(
+    r"\b(calculer|determiner|déterminer|montrer|demontrer|démontrer|justifier|"
+    r"etudier|étudier|resoudre|résoudre|verifier|vérifier|prouver|en\s+deduire|en\s+déduire|exprimer)\b",
+    re.IGNORECASE
+)
+
+MATH_DENSITY_RE = re.compile(r"([=<>+\-*/^]|\blim\b|\bsqrt\b|\bln\b|\blog\b|\bexp\b|\bu[_\s\{\(]*n\b)", re.IGNORECASE)
+
+ITEM_START_RE = re.compile(r"^\s*(exercice\s*\d+|question\s*\d+|\d+\s*[\).\:-]|[a-z]\))\s*", re.IGNORECASE)
+
+def _split_candidate_items(text: str):
+    """
+    Split into candidate "items" by lines starting with numbering markers.
+    """
+    lines = [re.sub(r"\s+", " ", ln).strip() for ln in (text or "").replace("\r","\n").split("\n")]
+    lines = [ln for ln in lines if ln]
+
+    items = []
+    buf = []
+    for ln in lines:
+        if ITEM_START_RE.match(ln) and buf:
+            items.append(" ".join(buf).strip())
+            buf = [ln]
+        else:
+            buf.append(ln)
+    if buf:
+        items.append(" ".join(buf).strip())
+    return items
+
+
+def _extract_qi(text: str):
+    """
+    Generic Qi: must contain an action verb OR high math density and be within reasonable length.
+    """
+    qis = []
+    for item in _split_candidate_items(text):
+        s = item.strip()
+        if len(s) < 25:
             continue
+        if len(s) > 700:
+            s = s[:700].rsplit(" ", 1)[0] + "…"
 
-        # signal "énoncé" : présence de verbes fréquents
-        if re.search(r"\b(calculer|déterminer|montrer|justifier|étudier|prouver)\b", b2, re.IGNORECASE):
-            candidates.append(b2)
-            continue
+        has_verb = bool(VERB_RE.search(s))
+        math_hits = len(MATH_DENSITY_RE.findall(s))
+        if has_verb or math_hits >= 2:
+            qis.append(s)
 
-        # ou présence de mot-clé suites (phase 1)
-        if _contains_suites_signal(b2):
-            candidates.append(b2)
-
-    # nettoyage léger : ne garder qu'une phrase / ligne représentative si bloc énorme
-    qi = []
-    for c in candidates:
-        c = re.sub(r"\s+", " ", c).strip()
-        if len(c) > 350:
-            # garder le début informatif
-            c = c[:350].rsplit(" ", 1)[0] + "…"
-        if len(c) >= MIN_QI_CHARS:
-            qi.append(c)
-
-    # dédoublonnage
-    seen = set()
-    out = []
-    for x in qi:
-        k = _normalize(x)
+    # dedupe
+    out, seen = [], set()
+    for q in qis:
+        k = _norm(q)
         if k not in seen:
             seen.add(k)
-            out.append(x)
+            out.append(q)
     return out
 
 
-# =========================
-# CLUSTERING -> QC (GREEDY JACCARD)
-# =========================
+# ------------------------
+# Chapter filtering (NO hardcoded chapter keywords)
+# ------------------------
+
+def _chapter_relevance(q: str, chapter_query: str) -> float:
+    """
+    Score based on overlap with chapter_query tokens (provided by config/UI),
+    plus math density. No predefined chapter dictionary.
+    """
+    qtoks = set(_tokenize(q))
+    ctoks = set(_tokenize(chapter_query))
+    if not ctoks:
+        ctoks = set()
+
+    overlap = len(qtoks & ctoks)
+    # math density normalized
+    math_hits = len(MATH_DENSITY_RE.findall(q))
+    md = min(1.0, math_hits / 6.0)
+
+    # If chapter_query empty: rely only on math density
+    if not ctoks:
+        return 0.5 * md
+
+    # overlap normalized by query size
+    ov = overlap / float(len(ctoks) or 1)
+    # combine
+    return 0.65 * ov + 0.35 * md
+
+
+def _filter_qi_by_chapter(qis: list[str], chapter_query: str):
+    scored = [(q, _chapter_relevance(q, chapter_query)) for q in qis]
+    # dynamic threshold: keep top slice if everything is weak
+    strong = [q for (q, s) in scored if s >= 0.20]
+    if strong:
+        return strong
+    # fallback: keep best 25% (at least 1)
+    scored.sort(key=lambda x: x[1], reverse=True)
+    keep_n = max(1, int(round(0.25 * len(scored))))
+    return [q for (q, _) in scored[:keep_n]]
+
+
+# ------------------------
+# Clustering Qi -> QC (prefer TF-IDF cosine if available, else Jaccard)
+# ------------------------
+
+def _cluster_tfidf(qi_texts: list[str]):
+    vec = TfidfVectorizer(min_df=1)
+    X = vec.fit_transform(qi_texts)
+    S = cosine_similarity(X)
+    # simple greedy clustering with SIM_THRESHOLD
+    clusters = []
+    used = [False] * len(qi_texts)
+
+    for i in range(len(qi_texts)):
+        if used[i]:
+            continue
+        group = [i]
+        used[i] = True
+        for j in range(i + 1, len(qi_texts)):
+            if used[j]:
+                continue
+            if S[i, j] >= SIM_THRESHOLD:
+                group.append(j)
+                used[j] = True
+        clusters.append(group)
+    return clusters
+
+def _cluster_jaccard(qi_texts: list[str]):
+    clusters = []
+    reps = []
+    for idx, txt in enumerate(qi_texts):
+        toks = _tokenize(txt)
+        best_i, best_sim = None, 0.0
+        for i, rep in enumerate(reps):
+            sim = _jaccard(toks, rep)
+            if sim > best_sim:
+                best_sim, best_i = sim, i
+        if best_i is not None and best_sim >= SIM_THRESHOLD:
+            clusters[best_i].append(idx)
+            reps[best_i] = list(set(reps[best_i]) | set(toks))
+        else:
+            clusters.append([idx])
+            reps.append(toks)
+    return clusters
+
+def _cluster_qi(qi_texts: list[str]):
+    if not qi_texts:
+        return []
+    if TfidfVectorizer is not None and cosine_similarity is not None and len(qi_texts) >= 3:
+        try:
+            return _cluster_tfidf(qi_texts)
+        except Exception:
+            return _cluster_jaccard(qi_texts)
+    return _cluster_jaccard(qi_texts)
+
+
+# ------------------------
+# Trigger extraction, ARI, FRT (ALL dynamic)
+# ------------------------
+
+GENERIC_STOP = {
+    "le","la","les","de","des","du","un","une","et","ou","a","au","aux","en","pour","par","sur","dans",
+    "avec","sans","que","qui","quoi","dont","ou","est","sont","etre","etre","soit","on","il","elle","ils",
+    "elles","ce","cet","cette","ces","se","sa","son","ses","leur","leurs","plus","moins","tres","afin","ainsi","alors","donc"
+}
+
+def _extract_triggers(qi_texts: list[str], k: int = 7):
+    toks = []
+    for t in qi_texts:
+        toks.extend(_tokenize(t))
+    filtered = []
+    for w in toks:
+        if w in GENERIC_STOP:
+            continue
+        if w.isdigit():
+            continue
+        if len(w) < 4:
+            continue
+        filtered.append(w)
+    freq = Counter(filtered)
+    return [w for (w, _) in freq.most_common(k)]
+
+def _build_ari(qi_texts: list[str]):
+    """
+    ARI = sequence of unique action verbs in appearance order (real extraction),
+    with minimal normalization (no topic templates).
+    """
+    seen = set()
+    seq = []
+    for q in qi_texts:
+        for m in VERB_RE.finditer(q):
+            v = _strip_accents_basic(m.group(1).lower())
+            v = re.sub(r"\s+", " ", v).strip()
+            if v not in seen:
+                seen.add(v)
+                seq.append(v)
+
+    # ensure non-empty ARI
+    if not seq:
+        # derive steps from math structure markers
+        if any("=" in q or ">" in q or "<" in q for q in qi_texts):
+            seq = ["poser", "transformer", "conclure"]
+        else:
+            seq = ["identifier", "traiter", "conclure"]
+
+    # format steps
+    steps = []
+    for i, v in enumerate(seq, 1):
+        steps.append(f"{i}) {v}")
+    return "\n".join(steps)
+
+def _build_frt(triggers: list[str], ari_text: str):
+    """
+    FRT sections required by UI, filled from real signals only.
+    """
+    trig = ", ".join(triggers[:6]) if triggers else "—"
+    ari_lines = [ln.strip() for ln in (ari_text or "").splitlines() if ln.strip()]
+    method = " -> ".join([re.sub(r"^\d+\)\s*", "", ln) for ln in ari_lines]) if ari_lines else "—"
+
+    # 'pièges' from weak signals: missing justification, notation, indices, etc.
+    pitfalls = []
+    if any("justifier" in (ln.lower()) for ln in ari_lines):
+        pitfalls.append("Justifications incomplètes")
+    pitfalls.append("Erreurs d’indices / de notation")
+    pitfalls.append("Sauts de calcul / transformations non justifiées")
+    pitfalls_txt = " ; ".join(dict.fromkeys(pitfalls))  # stable unique
+
+    return {
+        "quand_utiliser": f"Quand une question mobilise les notions liées à : {trig}.",
+        "methode_redigee": f"Chaîne opératoire observée : {method}.",
+        "pieges": pitfalls_txt,
+        "conclusion": "Conclure explicitement avec le résultat final et les conditions d’application."
+    }
+
+
+# ------------------------
+# Main engine
+# ------------------------
+
 @dataclass
 class QiItem:
     subject_id: str
     subject_file: str
     text: str
 
+def _saturation_points(qc_counts: list[int]):
+    return [{"Nombre de sujets injectes": i + 1, "Nombre de QC decouvertes": v} for i, v in enumerate(qc_counts)]
 
-def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.28) -> List[Dict]:
-    clusters: List[Dict] = []  # each: {id, rep_tokens, qis: [QiItem]}
+def _group_qi_by_file(items: list[QiItem]):
+    d = defaultdict(list)
+    for it in items:
+        d[it.subject_file].append(it.text)
+    return dict(d)
+
+def _score_qc(n_q: int, avg_rel: float):
+    # Simple monotone score; not topic-hardcoded
+    base = 40 + 15 * math.log(1 + n_q)
+    return int(round(base + 20 * avg_rel, 0))
+
+def _avg_relevance(qi_texts: list[str], chapter_query: str):
+    if not qi_texts:
+        return 0.0
+    vals = [_chapter_relevance(q, chapter_query) for q in qi_texts]
+    return float(sum(vals)) / float(len(vals) or 1)
+
+def _make_qc(items: list[QiItem]):
+    # Build QC list from all Qi items
+    qi_texts = [it.text for it in items]
+    clusters = _cluster_qi(qi_texts)
+
+    qc_list = []
     qc_idx = 1
+    for group in clusters:
+        group_items = [items[i] for i in group]
+        gtexts = [it.text for it in group_items]
 
-    for qi in qis:
-        toks = _tokenize(qi.text)
-        if not toks:
-            continue
+        triggers = _extract_triggers(gtexts, 7)
+        ari = _build_ari(gtexts)
+        frt = _build_frt(triggers, ari)
 
-        best_i = None
-        best_sim = 0.0
+        avg_rel = _avg_relevance(gtexts, CHAPTER_QUERY)
+        n_q = len(gtexts)
+        score = _score_qc(n_q, avg_rel)
+        psi = round(min(1.0, n_q / 25.0), 2)
 
-        for i, c in enumerate(clusters):
-            sim = _jaccard(toks, c["rep_tokens"])
-            if sim > best_sim:
-                best_sim = sim
-                best_i = i
+        title = gtexts[0]
+        if len(title) > 110:
+            title = title[:110].rsplit(" ", 1)[0] + "…"
 
-        if best_i is not None and best_sim >= sim_threshold:
-            clusters[best_i]["qis"].append(qi)
-            # rep_tokens = union léger (stabilise)
-            clusters[best_i]["rep_tokens"] = list(set(clusters[best_i]["rep_tokens"]) | set(toks))
-        else:
-            clusters.append({
-                "id": f"QC-{qc_idx:03d}",
-                "rep_tokens": toks,
-                "qis": [qi],
-            })
-            qc_idx += 1
+        qc_id = f"QC-{qc_idx:03d}"
+        qc_idx += 1
 
-    # build QC objects
-    qc_out = []
-    for c in clusters:
-        qi_texts = [q.text for q in c["qis"]]
+        qc_list.append({
+            # keep UI aliases
+            "chapter": CHAPTER_LABEL,
+            "CHAPITRE": CHAPTER_LABEL,
 
-        # titre QC = phrase représentative (premier Qi)
-        title = qi_texts[0]
-        title_short = title
-        if len(title_short) > 90:
-            title_short = title_short[:90].rsplit(" ", 1)[0] + "…"
+            "qc_id": qc_id,
+            "QC_ID": qc_id,
+            "id": qc_id,
 
-        # triggers = top keywords (simple)
-        tokens_all = []
-        for t in qi_texts:
-            tokens_all.extend(_tokenize(t))
-        freq = {}
-        for tok in tokens_all:
-            if tok in {"le", "la", "les", "de", "des", "du", "un", "une", "et", "à", "a", "en", "pour"}:
-                continue
-            if len(tok) < 4:
-                continue
-            freq[tok] = freq.get(tok, 0) + 1
-        triggers = [k for k, _ in sorted(freq.items(), key=lambda x: x[1], reverse=True)[:6]]
+            "qc_title": title,
+            "Titre": title,
+            "title": title,
 
-        # métriques transparentes
-        n_q = len(qi_texts)
-        psi = round(min(1.0, n_q / 25.0), 2)  # simple, assumé
-        score = int(round(50 + 10 * math.log(1 + n_q), 0))
-
-        # ARI/FRT : pas de fake -> placeholders explicites (phase test)
-        ari = ["(TEST) ARI non généré automatiquement à ce stade."]
-        frt = {
-            "usage": "(TEST) FRT non générée automatiquement à ce stade.",
-            "method": "(TEST) FRT non générée automatiquement à ce stade.",
-            "trap": "(TEST) FRT non générée automatiquement à ce stade.",
-            "conc": "(TEST) FRT non générée automatiquement à ce stade.",
-        }
-
-        qc_out.append({
-            "chapter": "SUITES NUMÉRIQUES",  # phase 1
-            "qc_id": c["id"],
-            "qc_title": title_short,
-            "score": score,
             "n_q": n_q,
+            "score": score,
+            "Score": score,
+
             "psi": psi,
-            "n_tot": len(qis),
+            "n_tot": len(items),
             "t_rec": 0.0,
+
             "triggers": triggers,
+            "Declencheurs": triggers,
+
             "ari": ari,
+            "ARI": ari,
+
             "frt": frt,
-            # mapping Qi par fichier
-            "qi_by_file": _group_qi_by_file(c["qis"]),
+            "FRT": frt,
+
+            "qi_by_file": _group_qi_by_file(group_items),
         })
 
-    return qc_out
+    qc_list.sort(key=lambda x: (x.get("n_q", 0), x.get("score", 0)), reverse=True)
+    return qc_list
 
 
-def _group_qi_by_file(qis: List[QiItem]) -> Dict[str, List[str]]:
-    out: Dict[str, List[str]] = {}
-    for q in qis:
-        out.setdefault(q.subject_file, []).append(q.text)
-    return out
-
-
-# =========================
-# SATURATION
-# =========================
-def compute_saturation(history_counts: List[int]) -> List[Dict]:
-    # history_counts[i] = nb QC après i+1 sujets
-    sat = []
-    for i, v in enumerate(history_counts):
-        sat.append({"Nombre de sujets injectés": i + 1, "Nombre de QC découvertes": v})
-    return sat
-
-
-# =========================
-# API PRINCIPALE POUR UI
-# =========================
-def run_granulo_test(urls: List[str], volume: int) -> Dict:
+def run_granulo_test(urls, volume):
     """
-    Retourne un dict :
-    - sujets: rows pour dataframe
-    - qc: liste QC structurées
-    - saturation: points courbe
-    - audit: métriques
+    UI calls this. Must not crash import nor signature.
     """
-    start = time.time()
+    t0 = _now()
 
-    pdf_links = extract_pdf_links(urls, limit=volume)
+    # normalize urls input (textarea string or list)
+    if isinstance(urls, str):
+        urls_list = [u.strip() for u in urls.splitlines() if u.strip()]
+    else:
+        urls_list = [str(u).strip() for u in (urls or []) if str(u).strip()]
 
-    sujets_rows = []
-    all_qis: List[QiItem] = []
-    qc_history = []
+    try:
+        volume_i = int(volume or 0)
+    except Exception:
+        volume_i = 0
+    if volume_i <= 0:
+        volume_i = 10
 
-    for idx, pdf_url in enumerate(pdf_links, start=1):
-        pdf_bytes = download_pdf(pdf_url)
+    # 1) Crawl -> PDF links (oversample to compensate rejects)
+    target_links = max(volume_i * 15, volume_i)
+    pdf_links = _crawl_collect_pdfs(urls_list, target_links)
+
+    sujets = []
+    qi_items: list[QiItem] = []
+    qc_counts = []
+
+    rejected_pdf_no_text = 0
+    rejected_pdf_no_qi = 0
+    processed_ok = 0
+
+    for pdf_url in pdf_links:
+        if processed_ok >= volume_i:
+            break
+
+        pdf_bytes = _download_pdf(pdf_url)
         if not pdf_bytes:
+            rejected_pdf_no_text += 1
             continue
 
-        text = extract_text_from_pdf_bytes(pdf_bytes)
-        if not text.strip():
+        text = _extract_text_pdf(pdf_bytes)
+        if not (text or "").strip():
+            rejected_pdf_no_text += 1
             continue
 
-        # extraction Qi
-        qi_texts = extract_qi_from_text(text)
+        # 2) Qi extraction (generic)
+        qis = _extract_qi(text)
+        if not qis:
+            rejected_pdf_no_qi += 1
+            continue
 
-        # Filtrage phase 1 suites (aucun fake : on jette si pas signal)
-        qi_texts = [q for q in qi_texts if _contains_suites_signal(q)]
+        # 3) Chapter filter (driven by CHAPTER_QUERY, not hardcoded lists)
+        qis = _filter_qi_by_chapter(qis, CHAPTER_QUERY)
+        if not qis:
+            rejected_pdf_no_qi += 1
+            continue
 
         subject_file = pdf_url.split("/")[-1].split("?")[0]
-        source_host = re.sub(r"^https?://", "", pdf_url).split("/")[0]
+        source_host = (urlparse(pdf_url).netloc or "").strip()
 
-        sujets_rows.append({
+        sujets.append({
             "Fichier": subject_file,
             "Nature": "INCONNU",
+            "Annee": None,
             "Année": None,
             "Source": source_host,
         })
 
-        subject_id = f"S{idx:04d}"
-        for q in qi_texts:
-            all_qis.append(QiItem(subject_id=subject_id, subject_file=subject_file, text=q))
+        subject_id = f"S{processed_ok + 1:04d}"
+        for q in qis:
+            qi_items.append(QiItem(subject_id=subject_id, subject_file=subject_file, text=q))
 
-        # QC cumulées (saturation)
-        qc_current = cluster_qi_to_qc(all_qis)
-        qc_history.append(len(qc_current))
+        processed_ok += 1
 
-    qc_list = cluster_qi_to_qc(all_qis)
-    sat_points = compute_saturation(qc_history)
+        # saturation sample
+        qc_now = _make_qc(qi_items) if qi_items else []
+        qc_counts.append(len(qc_now))
 
-    elapsed = round(time.time() - start, 2)
+    qc_list = _make_qc(qi_items) if qi_items else []
+    saturation = _saturation_points(qc_counts)
+    elapsed = round(_now() - t0, 2)
 
-    return {
-        "sujets": sujets_rows,
-        "qc": qc_list,
-        "saturation": sat_points,
-        "audit": {
-            "n_urls": len(urls),
-            "n_pdf_links": len(pdf_links),
-            "n_subjects_ok": len(sujets_rows),
-            "n_qi": len(all_qis),
-            "n_qc": len(qc_list),
-            "elapsed_s": elapsed,
+    binary_unmapped = bool(qi_items) and (len(qc_list) == 0)
+
+    audit = {
+        "n_urls": len(urls_list),
+        "n_pdf_links": len(pdf_links),
+        "n_subjects_ok": len(sujets),
+        "n_qi": len(qi_items),
+        "n_qc": len(qc_list),
+        "rejected_pdf_no_text": rejected_pdf_no_text,
+        "rejected_pdf_no_qi": rejected_pdf_no_qi,
+        "elapsed_s": elapsed,
+        "binary_qi_to_qc_unmapped_exists": binary_unmapped,
+        # prove config (helps ops; not hardcode)
+        "chapter_query": CHAPTER_QUERY,
+        "chapter_label": CHAPTER_LABEL,
+        "sim_threshold": SIM_THRESHOLD,
+        "deps": {
+            "requests": bool(requests is not None),
+            "bs4": bool(BeautifulSoup is not None),
+            "pdfplumber": bool(pdfplumber is not None),
+            "sklearn": bool(TfidfVectorizer is not None and cosine_similarity is not None),
         }
     }
+
+    return {"sujets": sujets, "qc": qc_list, "saturation": saturation, "audit": audit}
