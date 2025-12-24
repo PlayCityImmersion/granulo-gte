@@ -582,35 +582,88 @@ def extract_qi_from_text(text: str, chapter_filter: str = None) -> Tuple[List[st
 
 
 # =============================================================================
-# F1: Ψ_q (Poids Prédictif Purifié)
+# F1: Ψ_q (Poids Prédictif Purifié) - AVEC DÉTAIL DES COMPOSANTES
 # =============================================================================
-def compute_psi_q(qi_texts: List[str], niveau: str = "Terminale") -> float:
+def compute_psi_q_detailed(qi_texts: List[str], niveau: str = "Terminale") -> Dict:
+    """
+    Calcule Ψ_q avec toutes les composantes pour affichage.
+    Retourne: {psi, sum_tj, delta_c, transforms_found}
+    """
     if not qi_texts:
-        return EPSILON_PSI
+        return {"psi": EPSILON_PSI, "sum_tj": 0, "delta_c": 1.0, "transforms_found": []}
     
     combined = " ".join(qi_texts).lower()
     
-    sum_tj = sum(w for t, w in COGNITIVE_TRANSFORMS.items() if t in combined)
+    # Calculer Σ T_j (somme des transformations cognitives détectées)
+    transforms_found = []
+    sum_tj = 0.0
+    for transform, weight in COGNITIVE_TRANSFORMS.items():
+        if transform in combined:
+            sum_tj += weight
+            transforms_found.append(f"{transform}({weight})")
+    
+    # Ψ_brut = Σ T_j + ε
     psi_brut = sum_tj + EPSILON_PSI
+    
+    # δ_c = coefficient de niveau
     delta_c = DELTA_NIVEAU.get(niveau, 1.0)
     
-    return round(min(1.0, psi_brut * delta_c / 3.0), 2)
-
-
-# =============================================================================
-# F2: Score(q) (Sélection Granulo) - CORRECTIF 4: t_rec prudent
-# =============================================================================
-def compute_score_f2(n_q: int, n_total: int, t_rec: Optional[float], psi_q: float, alpha: float = 5.0) -> float:
-    if n_total == 0:
-        return 0.0
+    # Ψ ajusté et normalisé
+    psi_ajuste = psi_brut * delta_c
+    psi_normalise = min(1.0, psi_ajuste / 3.0)
     
+    return {
+        "psi": round(psi_normalise, 2),
+        "sum_tj": round(sum_tj, 2),
+        "delta_c": delta_c,
+        "transforms_found": transforms_found
+    }
+
+
+def compute_psi_q(qi_texts: List[str], niveau: str = "Terminale") -> float:
+    """Version simple pour compatibilité."""
+    return compute_psi_q_detailed(qi_texts, niveau)["psi"]
+
+
+# =============================================================================
+# F2: Score(q) (Sélection Granulo) - AVEC DÉTAIL DES COMPOSANTES
+# =============================================================================
+def compute_score_f2_detailed(n_q: int, n_total: int, t_rec: Optional[float], psi_q: float, 
+                               alpha: float = 5.0, redundancy_penalty: float = 1.0) -> Dict:
+    """
+    Calcule Score(q) avec toutes les composantes pour affichage.
+    
+    Formule A2: Score(q) = (n_q / N_tot) × (1 + α/t_réc) × Ψ_q × R_penalty × 100
+    
+    Retourne: {score, freq_ratio, recency_factor, alpha, t_rec, redundancy}
+    """
+    if n_total == 0:
+        return {"score": 0, "freq_ratio": 0, "recency_factor": 0, "alpha": alpha, 
+                "t_rec": t_rec, "redundancy": redundancy_penalty}
+    
+    # Fréquence relative
     freq_ratio = n_q / n_total
     
-    # CORRECTIF 4: Si année inconnue, pénaliser (t_rec=5 ans)
+    # Facteur de récence: (1 + α/t_réc)
     t_rec_safe = max(0.5, t_rec) if t_rec is not None else 5.0
     recency_factor = 1 + (alpha / t_rec_safe)
     
-    return round(freq_ratio * recency_factor * psi_q * 100, 1)
+    # Score final
+    score = freq_ratio * recency_factor * psi_q * redundancy_penalty * 100
+    
+    return {
+        "score": round(score, 1),
+        "freq_ratio": round(freq_ratio, 4),
+        "recency_factor": round(recency_factor, 2),
+        "alpha": alpha,
+        "t_rec": t_rec_safe if t_rec is not None else None,
+        "redundancy": redundancy_penalty
+    }
+
+
+def compute_score_f2(n_q: int, n_total: int, t_rec: Optional[float], psi_q: float, alpha: float = 5.0) -> float:
+    """Version simple pour compatibilité."""
+    return compute_score_f2_detailed(n_q, n_total, t_rec, psi_q, alpha)["score"]
 
 
 # =============================================================================
@@ -686,13 +739,20 @@ class QiItem:
 
 
 # =============================================================================
-# CLUSTERING Qi → QC
+# CLUSTERING Qi → QC (AVEC VARIABLES F1/F2 COMPLÈTES)
 # =============================================================================
 def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dict]:
+    """
+    Clustering des Qi en QC avec calcul complet des variables F1/F2.
+    
+    Variables retournées pour chaque QC:
+    - Score(q), n_q, Ψ, N_tot, t_réc, α, Σ_Tj
+    """
     if not qis:
         return []
     
     clusters = []
+    ALPHA = 5.0  # Paramètre α fixe (peut être configuré)
     
     for qi in qis:
         toks = tokenize(qi.text)
@@ -718,38 +778,83 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
         qi_texts = [q.text for q in c["qis"]]
         chapter = c["qis"][0].chapter if c["qis"] else "SUITES NUMÉRIQUES"
         
+        # Titre = Qi la plus courte (mais significative)
         title = min(qi_texts, key=lambda x: len(x) if len(x) > 30 else 1000)
         if len(title) > 80:
             title = title[:80].rsplit(" ", 1)[0] + "..."
         
+        # Déclencheurs, ARI, FRT
         triggers = extract_triggers(qi_texts)
         ari = generate_ari(qi_texts, chapter)
         frt_data = generate_frt(qi_texts, chapter, triggers)
         
         n_q = len(qi_texts)
-        psi_q = compute_psi_q(qi_texts, "Terminale")
         
-        # CORRECTIF 4: Gestion année None
+        # F1: Calcul détaillé de Ψ_q
+        psi_details = compute_psi_q_detailed(qi_texts, "Terminale")
+        psi_q = psi_details["psi"]
+        sum_tj = psi_details["sum_tj"]
+        
+        # Calcul de t_réc (récence)
         years = [q.year for q in c["qis"] if q.year is not None]
         if years:
             max_year = max(years)
             t_rec = max(0.5, datetime.now().year - max_year)
         else:
-            t_rec = None  # Année inconnue
+            t_rec = None
         
-        score = compute_score_f2(n_q, total_qi, t_rec, psi_q)
+        # F2: Calcul détaillé du Score
+        score_details = compute_score_f2_detailed(n_q, total_qi, t_rec, psi_q, ALPHA)
+        score = score_details["score"]
         
+        # Organisation des Qi par fichier source (pour UI)
         qi_by_file = defaultdict(list)
         for q in c["qis"]:
-            qi_by_file[q.subject_file].append(q.text)
+            qi_by_file[q.subject_file].append({
+                "text": q.text,
+                "year": q.year
+            })
         
-        evidence = [{"Fichier": f, "Qi": qi_txt} for f, qlist in qi_by_file.items() for qi_txt in qlist]
+        # Evidence structurée par sujet
+        evidence_by_subject = []
+        for f, qi_list in qi_by_file.items():
+            evidence_by_subject.append({
+                "Fichier": f,
+                "Qis": [q["text"] for q in qi_list],
+                "Count": len(qi_list)
+            })
+        
+        # Evidence plate (compatibilité)
+        evidence = [{"Fichier": f, "Qi": q["text"]} for f, qi_list in qi_by_file.items() for q in qi_list]
         
         qc_out.append({
-            "Chapitre": chapter, "QC_ID": c["id"], "FRT_ID": c["id"],
-            "Titre": title, "Score": score, "n_q": n_q, "Psi": psi_q,
-            "N_tot": total_qi, "t_rec": round(t_rec, 1) if t_rec else "N/A",
-            "Triggers": triggers, "ARI": ari, "FRT_DATA": frt_data, "Evidence": evidence
+            # Identifiants
+            "Chapitre": chapter,
+            "QC_ID": c["id"],
+            "FRT_ID": c["id"],
+            "Titre": title,
+            
+            # Variables F2 (affichage principal)
+            "Score": score,
+            "n_q": n_q,
+            "Psi": psi_q,
+            "N_tot": total_qi,
+            "t_rec": round(t_rec, 1) if t_rec else "N/A",
+            "Alpha": ALPHA,
+            "Sum_Tj": sum_tj,
+            
+            # Détails F1/F2 (pour audit)
+            "F1_details": psi_details,
+            "F2_details": score_details,
+            
+            # Déclencheurs, ARI, FRT
+            "Triggers": triggers,
+            "ARI": ari,
+            "FRT_DATA": frt_data,
+            
+            # Preuves (Qi)
+            "Evidence": evidence,
+            "EvidenceBySubject": evidence_by_subject
         })
     
     qc_out.sort(key=lambda x: x["Score"], reverse=True)
@@ -981,7 +1086,7 @@ def audit_external_real(pdf_bytes: bytes, qc_df, chapter_filter: str = None) -> 
 # VERSION MARKER - V3.1 POST-AUDIT GPT - 2024-12-24
 # Si vous voyez PV164.pdf, ce fichier N'EST PAS déployé correctement!
 # =============================================================================
-VERSION = "V3.1-AUDIT-GPT-20241224"
+VERSION = "V3.4-FULL-F1F2-20241224"
 
 # VERSION MARKER
-VERSION = "V3.3-PARALLEL-20241224"
+VERSION = "V3.4-FULL-F1F2-20241224"
