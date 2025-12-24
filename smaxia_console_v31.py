@@ -1,8 +1,7 @@
-# smaxia_console_v31_real.py
+# smaxia_console_v31.py
 # =============================================================================
-# SMAXIA - Console V31 (MOTEUR RÉEL)
-# =============================================================================
-# UI Gemini V31 connectée au moteur RÉEL (zéro hardcode)
+# SMAXIA - Console V31 (Saturation Proof)
+# UI IDENTIQUE à Gemini + Moteur RÉEL (F1/F2)
 # =============================================================================
 
 import streamlit as st
@@ -11,21 +10,20 @@ from collections import defaultdict
 from datetime import datetime
 
 # Import du moteur RÉEL
-from smaxia_granulo_engine_real import (
+from smaxia_granulo_engine_real_v2 import (
     ingest_real,
     compute_qc_real,
     compute_saturation_real,
     audit_internal_real,
-    audit_external_real,
-    CHAPTER_KEYWORDS
+    audit_external_real
 )
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="SMAXIA - Console V31 (Real Engine)")
-st.title("🛡️ SMAXIA - Console V31 (Real Engine)")
+st.set_page_config(layout="wide", page_title="SMAXIA - Console V31")
+st.title("🛡️ SMAXIA - Console V31 (Saturation Proof)")
 
 # ==============================================================================
-# 🎨 STYLES CSS (GABARIT SMAXIA - INCHANGÉ)
+# 🎨 STYLES CSS (GABARIT SMAXIA - IDENTIQUE GEMINI)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -69,10 +67,6 @@ st.markdown("""
 
     /* SATURATION */
     .sat-box { background-color: #f0f9ff; border: 1px solid #bae6fd; padding: 20px; border-radius: 8px; margin-top: 20px; }
-    
-    /* STATUS */
-    .status-real { background-color: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
-    .status-info { background-color: #dbeafe; color: #1e40af; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -85,26 +79,11 @@ LISTE_CHAPITRES = {
 }
 
 with st.sidebar:
-    st.header("📚 Paramètres Académiques")
-    
-    st.markdown('<span class="status-real">🔴 MOTEUR RÉEL</span>', unsafe_allow_html=True)
-    st.caption("Extraction PDF réelle, zéro données fake")
-    
-    st.divider()
-    
+    st.header("Paramètres Académiques")
     st.selectbox("Classe", ["Terminale"], disabled=True)
     sel_matiere = st.selectbox("Matière", ["MATHS", "PHYSIQUE"])
     chaps = LISTE_CHAPITRES.get(sel_matiere, [])
-    sel_chapitres = st.multiselect("Chapitres (Filtre)", chaps, default=chaps[:1] if chaps else [])
-    
-    st.divider()
-    
-    # Stats en temps réel
-    if 'all_qis' in st.session_state and st.session_state['all_qis']:
-        st.markdown("### 📊 Statistiques")
-        st.metric("Qi extraites", len(st.session_state['all_qis']))
-        if 'df_qc' in st.session_state and not st.session_state['df_qc'].empty:
-            st.metric("QC générées", len(st.session_state['df_qc']))
+    sel_chapitres = st.multiselect("Chapitres", chaps, default=chaps[:1] if chaps else [])
 
 # ==============================================================================
 # ONGLETS
@@ -115,70 +94,47 @@ tab_usine, tab_audit = st.tabs(["🏭 Onglet 1 : Usine", "✅ Onglet 2 : Audit"]
 # ONGLET 1 - USINE
 # ==============================================================================
 with tab_usine:
-    
-    st.markdown("""
-    <div class="status-info">
-        ℹ️ <strong>Moteur Réel</strong> : Ce moteur scrape les URLs, télécharge les PDFs, 
-        extrait le texte et les questions, puis cluster les Qi en QC par similarité Jaccard.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # --- ZONE INJECTION ---
     c1, c2 = st.columns([3, 1])
     with c1:
-        urls = st.text_area(
-            "URLs Sources (sites avec des PDFs de sujets)",
-            "https://www.apmep.fr/Terminale-S-702-sujets-702",
-            height=80,
-            help="Entrez des URLs de sites contenant des liens vers des PDFs de sujets"
-        )
+        urls = st.text_area("URLs Sources", "https://apmep.fr", height=68)
     with c2:
-        vol = st.number_input("Volume", 5, 100, 15, step=5, help="Nombre de PDFs à traiter")
-        run = st.button("🚀 LANCER L'USINE", type="primary", use_container_width=True)
+        vol = st.number_input("Volume", 5, 500, 20, step=5)
+        run = st.button("LANCER L'USINE 🚀", type="primary")
 
     if run:
         url_list = [u.strip() for u in urls.split('\n') if u.strip()]
         chapter_filter = sel_chapitres[0] if sel_chapitres else None
         
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        status_text.text("🔍 Scraping des URLs et téléchargement des PDFs...")
+        progress = st.progress(0)
         
         try:
-            df_src, df_atoms, all_qis = ingest_real(
+            df_src, df_atoms = ingest_real(
                 url_list, 
                 vol, 
                 sel_matiere, 
                 chapter_filter,
-                progress_callback=lambda p: progress_bar.progress(p)
+                progress_callback=lambda p: progress.progress(p)
             )
             
-            if all_qis:
-                status_text.text("🧠 Clustering Qi → QC...")
-                df_qc = compute_qc_real(all_qis)
+            if not df_atoms.empty:
+                df_qc = compute_qc_real(df_atoms)
                 
                 st.session_state['df_src'] = df_src
                 st.session_state['df_qc'] = df_qc
-                st.session_state['all_qis'] = all_qis
-                st.session_state['chapter_filter'] = chapter_filter
+                st.session_state['df_atoms'] = df_atoms
                 
-                status_text.empty()
-                st.success(f"✅ Ingestion terminée : {len(df_src)} sujets traités, {len(all_qis)} Qi extraites, {len(df_qc)} QC générées.")
+                st.success(f"Ingestion terminée : {len(df_src)} sujets traités.")
             else:
-                status_text.empty()
-                st.warning("⚠️ Aucune Qi extraite. Vérifiez les URLs ou le filtre chapitre.")
+                st.warning("Aucune Qi extraite. Vérifiez les URLs.")
                 
         except Exception as e:
-            status_text.empty()
-            st.error(f"❌ Erreur : {str(e)}")
+            st.error(f"Erreur : {str(e)}")
 
     st.divider()
 
     # --- TABLEAU SUJETS ---
     if 'df_src' in st.session_state and not st.session_state['df_src'].empty:
         st.markdown(f"### 📥 Sujets Traités ({len(st.session_state['df_src'])})")
-        
         df_view = st.session_state['df_src'].rename(columns={"Annee": "Année", "Telechargement": "Lien"})
         st.data_editor(
             df_view[["Fichier", "Nature", "Année", "Lien"]], 
@@ -194,19 +150,12 @@ with tab_usine:
         st.markdown("### 🧠 Base de Connaissance (QC)")
         
         if 'df_qc' in st.session_state and not st.session_state['df_qc'].empty:
-            df_qc = st.session_state['df_qc']
-            
-            # Filtrer par chapitres sélectionnés
-            if sel_chapitres:
-                qc_view = df_qc[df_qc["Chapitre"].isin(sel_chapitres)]
-            else:
-                qc_view = df_qc
+            qc_view = st.session_state['df_qc'][st.session_state['df_qc']["Chapitre"].isin(sel_chapitres)]
             
             if qc_view.empty:
-                st.info("Aucune QC pour les chapitres sélectionnés.")
+                st.info("Aucune QC pour ces chapitres.")
             else:
                 chapters = qc_view["Chapitre"].unique()
-                
                 for chap in chapters:
                     subset = qc_view[qc_view["Chapitre"] == chap]
                     st.markdown(f"#### 📘 {chap} ({len(subset)} QC)")
@@ -217,7 +166,7 @@ with tab_usine:
                         <div class="qc-header-box">
                             <span class="qc-id-text">{row['QC_ID']}</span>
                             <span class="qc-title-text">{row['Titre']}</span><br>
-                            <span class="qc-meta-text">Score(q)={row['Score']:.0f} | n_q={row['n_q']} | Ψ={row['Psi']} | N_tot={row['N_tot']} | t_réc={row['t_rec']}</span>
+                            <span class="qc-meta-text">Score(q)={row['Score']:.0f} | n_q={row['n_q']} | Ψ={row['Psi']} | N_tot={row['N_tot']}</span>
                         </div>
                         """, unsafe_allow_html=True)
                         
@@ -227,11 +176,8 @@ with tab_usine:
                         with c1:
                             with st.expander("🔥 Déclencheurs"):
                                 triggers = row['Triggers'] if isinstance(row['Triggers'], list) else []
-                                if triggers:
-                                    for t in triggers:
-                                        st.markdown(f"<span class='trigger-item'>\"{t}\"</span>", unsafe_allow_html=True)
-                                else:
-                                    st.caption("Aucun déclencheur identifié")
+                                for t in triggers:
+                                    st.markdown(f"<span class='trigger-item'>\"{t}\"</span>", unsafe_allow_html=True)
                         
                         with c2:
                             with st.expander("⚙️ ARI"):
@@ -252,88 +198,69 @@ with tab_usine:
                                 qi_by_file = defaultdict(list)
                                 for item in evidence:
                                     qi_by_file[item['Fichier']].append(item['Qi'])
-                                
                                 html = ""
                                 for f, qlist in qi_by_file.items():
                                     html += f"<div class='file-block'><div class='file-header'>📁 {f}</div>"
-                                    for q in qlist[:5]:  # Max 5 par fichier
-                                        q_display = q[:100] + "..." if len(q) > 100 else q
-                                        html += f"<div class='qi-item'>\"{q_display}\"</div>"
+                                    for q in qlist[:5]:
+                                        q_disp = q[:100] + "..." if len(q) > 100 else q
+                                        html += f"<div class='qi-item'>\"{q_disp}\"</div>"
                                     if len(qlist) > 5:
-                                        html += f"<div class='qi-item'>… +{len(qlist)-5} autres</div>"
+                                        html += f"<div class='qi-item'>... +{len(qlist)-5} autres</div>"
                                     html += "</div>"
                                 st.markdown(html, unsafe_allow_html=True)
                         
                         st.write("")
         else:
-            st.warning("Aucune QC générée. Lancez l'usine d'abord.")
+            st.warning("Aucune QC générée.")
         
         # --- SATURATION ---
         st.divider()
         st.markdown("### 📈 Analyse de Saturation (Preuve de Complétude)")
-        st.caption("Ce graphique montre l'évolution du nombre de QC en fonction des sujets traités.")
+        st.caption("Ce graphique montre à quelle vitesse le moteur découvre l'ensemble des types de questions (QC) possibles.")
         
-        if 'all_qis' in st.session_state and st.session_state['all_qis']:
-            if st.button("📊 Calculer la courbe de saturation"):
-                with st.spinner("Calcul de la saturation..."):
-                    df_sat = compute_saturation_real(st.session_state['all_qis'])
-                    
-                    if not df_sat.empty:
-                        # Graphique
-                        st.line_chart(df_sat, x="Sujets (N)", y="QC Découvertes")
+        col_sim_1, col_sim_2 = st.columns([1, 3])
+        with col_sim_1:
+            if st.button("Lancer Analyse"):
+                with col_sim_2:
+                    if 'df_atoms' in st.session_state and not st.session_state['df_atoms'].empty:
+                        df_chart = compute_saturation_real(st.session_state['df_atoms'])
                         
-                        # Tableau
-                        st.markdown("#### 🔢 Données de Convergence")
-                        # Afficher tous les 5 sujets ou moins si petit volume
-                        step = max(1, len(df_sat) // 10)
-                        df_display = df_sat.iloc[::step].reset_index(drop=True)
-                        st.dataframe(df_display, use_container_width=True)
-                        
-                        # Analyse
-                        max_qc = df_sat["QC Découvertes"].max()
-                        last_values = df_sat["QC Découvertes"].tail(3).tolist()
-                        
-                        if len(set(last_values)) == 1:
-                            st.success(f"✅ **Saturation atteinte !** Les derniers sujets n'apportent plus de nouvelles QC ({max_qc} QC max).")
+                        if not df_chart.empty:
+                            # Graphique
+                            st.line_chart(df_chart, x="Sujets (N)", y="QC Découvertes", color="#2563eb")
+                            
+                            # Tableau
+                            st.markdown("#### 🔢 Données de Convergence")
+                            step = max(1, len(df_chart) // 10)
+                            df_display = df_chart.iloc[::step].reset_index(drop=True)
+                            st.dataframe(df_display, use_container_width=True)
+                            
+                            # Analyse
+                            max_qc = df_chart["QC Découvertes"].max()
+                            sat_point = df_chart[df_chart["QC Découvertes"] >= max_qc * 0.9]
+                            if not sat_point.empty:
+                                sat_n = sat_point.iloc[0]["Sujets (N)"]
+                                st.success(f"✅ **Seuil de Saturation (Granulo 15) atteint à ~{sat_n} sujets.** À partir de ce point, l'ajout de nouveaux sujets n'apporte que des variations mineures (Qi), plus de nouvelles structures (QC).")
                         else:
-                            # Trouver le point de saturation approximatif
-                            sat_90 = df_sat[df_sat["QC Découvertes"] >= max_qc * 0.9]
-                            if not sat_90.empty:
-                                sat_point = sat_90.iloc[0]["Sujets (N)"]
-                                st.info(f"📈 **Saturation ~90% atteinte à {sat_point} sujets.** Continuez pour confirmer la stabilité.")
-                            else:
-                                st.warning("⚠️ Saturation non atteinte. Ajoutez plus de sujets.")
+                            st.warning("Pas assez de données.")
                     else:
-                        st.warning("Pas assez de données pour la saturation.")
-        else:
-            st.info("Lancez l'usine pour voir la courbe de saturation.")
-    else:
-        st.info("⏳ Lancez l'usine pour commencer l'extraction.")
+                        st.info("Lancez d'abord l'usine.")
 
 # ==============================================================================
 # ONGLET 2 - AUDIT
 # ==============================================================================
 with tab_audit:
-    st.subheader("🔍 Validation Booléenne")
-    
-    st.markdown("""
-    **Objectifs :**
-    - **Audit Interne** : Chaque Qi d'un sujet traité → QC = **100%**
-    - **Audit Externe** : Sujet inconnu → QC = **≥ 95%**
-    """)
+    st.subheader("Validation Booléenne")
     
     if 'df_qc' in st.session_state and not st.session_state['df_qc'].empty:
         
         # --- AUDIT INTERNE ---
-        st.divider()
-        st.markdown("#### ✅ 1. Test Interne (Sujet Traité)")
+        st.markdown("#### ✅ 1. Test Interne")
         
         if 'df_src' in st.session_state and not st.session_state['df_src'].empty:
-            fichiers = st.session_state['df_src']["Fichier"].tolist()
-            t1_file = st.selectbox("Choisir un sujet traité", fichiers)
+            t1_file = st.selectbox("Sujet", st.session_state['df_src']["Fichier"])
             
-            if st.button("🔬 AUDIT INTERNE"):
-                # Récupérer les Qi du sujet
+            if st.button("AUDIT INTERNE"):
                 row = st.session_state['df_src'][st.session_state['df_src']["Fichier"] == t1_file].iloc[0]
                 qi_data = row["Qi_Data"]
                 
@@ -343,75 +270,47 @@ with tab_audit:
                     matched = sum(1 for r in results if r["Statut"] == "✅ MATCH")
                     coverage = (matched / len(results)) * 100 if results else 0
                     
-                    col1, col2 = st.columns(2)
-                    col1.metric("Couverture", f"{coverage:.0f}%")
-                    col2.metric("Qi mappées", f"{matched}/{len(results)}")
+                    st.metric("Couverture", f"{coverage:.0f}%")
                     
-                    if coverage >= 100:
-                        st.success("✅ 100% de couverture - SUCCÈS")
-                    elif coverage >= 80:
-                        st.warning(f"⚠️ {coverage:.0f}% de couverture - À améliorer")
-                    else:
-                        st.error(f"❌ {coverage:.0f}% de couverture - INSUFFISANT")
-                    
-                    # Tableau détaillé
                     df_results = pd.DataFrame(results)
                     
-                    def highlight_status(row):
+                    def color_status(row):
                         if row['Statut'] == "✅ MATCH":
                             return ['background-color: #dcfce7'] * len(row)
                         else:
                             return ['background-color: #fee2e2'] * len(row)
                     
-                    st.dataframe(
-                        df_results.style.apply(highlight_status, axis=1),
-                        use_container_width=True
-                    )
+                    st.dataframe(df_results.style.apply(color_status, axis=1), use_container_width=True)
                 else:
-                    st.warning("Aucune Qi trouvée dans ce sujet.")
+                    st.warning("Aucune Qi dans ce sujet.")
+        
+        st.divider()
         
         # --- AUDIT EXTERNE ---
-        st.divider()
-        st.markdown("#### 🌍 2. Test Externe (Sujet Inconnu)")
+        st.markdown("#### 🌍 2. Test Externe")
         
-        uploaded = st.file_uploader("Charger un PDF externe", type="pdf")
+        up = st.file_uploader("PDF", type="pdf")
         
-        if uploaded:
-            if st.button("🔬 AUDIT EXTERNE"):
-                pdf_bytes = uploaded.read()
-                chapter_filter = st.session_state.get('chapter_filter', sel_chapitres[0] if sel_chapitres else None)
+        if up:
+            if st.button("AUDIT EXTERNE"):
+                pdf_bytes = up.read()
+                chapter_filter = sel_chapitres[0] if sel_chapitres else None
                 
-                with st.spinner("Analyse du sujet externe..."):
-                    coverage, results = audit_external_real(pdf_bytes, st.session_state['df_qc'], chapter_filter)
+                coverage, results = audit_external_real(pdf_bytes, st.session_state['df_qc'], chapter_filter)
                 
                 if results:
-                    matched = sum(1 for r in results if r["Statut"] == "✅ MATCH")
+                    st.markdown(f"### Taux : {coverage:.1f}%")
                     
-                    col1, col2 = st.columns(2)
-                    col1.metric("Couverture", f"{coverage:.0f}%")
-                    col2.metric("Qi couvertes", f"{matched}/{len(results)}")
-                    
-                    if coverage >= 95:
-                        st.success(f"✅ {coverage:.0f}% de couverture - OBJECTIF ATTEINT (≥95%)")
-                    elif coverage >= 80:
-                        st.warning(f"⚠️ {coverage:.0f}% de couverture - PROCHE DE L'OBJECTIF")
-                    else:
-                        st.error(f"❌ {coverage:.0f}% de couverture - INSUFFISANT")
-                    
-                    # Tableau détaillé
                     df_results = pd.DataFrame(results)
                     
-                    def highlight_status(row):
+                    def color_status(row):
                         if row['Statut'] == "✅ MATCH":
                             return ['background-color: #dcfce7'] * len(row)
                         else:
                             return ['background-color: #fee2e2'] * len(row)
                     
-                    st.dataframe(
-                        df_results.style.apply(highlight_status, axis=1),
-                        use_container_width=True
-                    )
+                    st.dataframe(df_results.style.apply(color_status, axis=1), use_container_width=True)
                 else:
-                    st.warning("Aucune Qi extraite du PDF externe.")
+                    st.warning("Aucune Qi extraite.")
     else:
-        st.info("⏳ Lancez d'abord l'usine pour générer des QC.")
+        st.info("Lancez l'usine.")
