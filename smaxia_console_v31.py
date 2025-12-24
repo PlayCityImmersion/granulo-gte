@@ -227,13 +227,29 @@ with tab_usine:
                     df_chart = compute_saturation_real(st.session_state['df_atoms'])
                 
                 if not df_chart.empty:
-                    st.line_chart(df_chart, x="Sujets (N)", y="QC Découvertes", color="#2563eb")
+                    # Graphique double: QC Total + Nouvelles QC
+                    col1, col2 = st.columns(2)
                     
-                    max_qc = df_chart["QC Découvertes"].max()
-                    sat_point = df_chart[df_chart["QC Découvertes"] >= max_qc * 0.9]
-                    if not sat_point.empty:
-                        sat_n = sat_point.iloc[0]["Sujets (N)"]
-                        st.success(f"✅ Seuil de Saturation atteint à ~{sat_n} sujets.")
+                    with col1:
+                        st.markdown("**📊 QC Totales (cumulées)**")
+                        st.line_chart(df_chart, x="Sujets (N)", y="QC Total", color="#2563eb")
+                    
+                    with col2:
+                        st.markdown("**🆕 Nouvelles QC par sujet**")
+                        st.bar_chart(df_chart, x="Sujets (N)", y="Nouvelles QC", color="#10b981")
+                    
+                    # Détection point de saturation
+                    zero_new = df_chart[df_chart["Nouvelles QC"] == 0]
+                    if not zero_new.empty:
+                        sat_point = zero_new.iloc[0]["Sujets (N)"]
+                        total_at_sat = df_chart[df_chart["Sujets (N)"] == sat_point]["QC Total"].values[0]
+                        st.success(f"✅ Point de saturation détecté à **N={int(sat_point)}** sujets avec **{int(total_at_sat)} QC**")
+                    else:
+                        st.info("📈 Pas encore de saturation - continuer à injecter des sujets")
+                    
+                    # Tableau détaillé
+                    with st.expander("📋 Données détaillées"):
+                        st.dataframe(df_chart, use_container_width=True)
 
 # ==============================================================================
 # ONGLET 2 - AUDIT
