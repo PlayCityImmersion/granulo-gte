@@ -304,15 +304,221 @@ class QiItem:
 
 
 # =============================================================================
-# CLUSTERING Qi → QC (AVEC RÈGLE SMAXIA)
+# AXIOME SMAXIA : "La QC est la Qi Championne qui a subi une Mue"
 # =============================================================================
+# PRINCIPE : SÉLECTION + MUTATION (pas génération inventive)
+# 1. ÉLECTION : Trouver la Qi Championne (meilleur score de représentativité)
+# 2. MUE : Transformer cette Qi en QC via 3 opérations strictes
+# =============================================================================
+
+def operation_nettoyage(texte: str) -> str:
+    """
+    OPÉRATION 1 : NETTOYAGE - Remplacement des constantes par leurs formes INVARIANTES
+    
+    PRINCIPE : On ne SUPPRIME pas, on REMPLACE par la forme générique
+    - 0,7 → k
+    - [0;6] → [a;b]
+    - f(t) → f(x)
+    - la suite (u_n) → une suite
+    - α, β → supprimés (variables de résultat)
+    """
+    result = texte
+    
+    # === REMPLACEMENTS (pas suppressions) ===
+    
+    # Intervalles numériques → [a;b] ou [a;+∞[
+    result = re.sub(r'\[\s*-?\d+[,\.]?\d*\s*[;,]\s*-?\d+[,\.]?\d*\s*\]', '[a;b]', result)
+    result = re.sub(r'\[\s*-?\d+[,\.]?\d*\s*[;,]\s*\+?∞\s*\[', '[a;+∞[', result)
+    result = re.sub(r'\]\s*-∞\s*[;,]\s*-?\d+[,\.]?\d*\s*\]', ']-∞;b]', result)
+    result = re.sub(r'\]\s*-∞\s*[;,]\s*\+?∞\s*\[', ']-∞;+∞[', result)
+    
+    # f(x)=0,7 → f(x)=k (garder la structure équation)
+    result = re.sub(r'([fgh])\s*\(\s*[txns]\s*\)\s*=\s*-?\d+[,\.]?\d*', r'\1(x)=k', result)
+    
+    # f(t), g(x), h(n) → f(x) (variable canonique)
+    result = re.sub(r'\b([fgh])\s*\(\s*[txns]\s*\)', r'\1(x)', result)
+    
+    # Nombres décimaux isolés (après =) → k
+    result = re.sub(r'=\s*-?\d+[,\.]?\d*', '=k', result)
+    
+    # la suite (u_n), la suite (v_n) → une suite
+    result = re.sub(r'la suite\s*\(\s*[uvw]\s*_?\s*n\s*\)', 'une suite', result)
+    result = re.sub(r'la suite\s+[uvw]\s*_?\s*n', 'une suite', result)
+    
+    # (u_n), (v_n) seul → une suite (si précédé de "de")
+    result = re.sub(r'de\s*\(\s*[uvw]\s*_?\s*n\s*\)', 'd\'une suite', result)
+    result = re.sub(r'\(\s*[uvw]\s*_?\s*n\s*\)', '', result)
+    
+    # q=2, r=3 → q (raison générique)
+    result = re.sub(r'([qr])\s*=\s*-?\d+[,\.]?\d*', r'\1', result)
+    
+    # Lettres grecques isolées (résultats) → supprimées
+    result = re.sub(r'\s+[αβγδ]\s+', ' ', result)
+    result = re.sub(r'\s+[αβγδ]\s*$', '', result)
+    result = re.sub(r'\s+[αβγδ]\s*sur', ' sur', result)
+    
+    # P(n) reste P(n) - c'est une propriété générique
+    
+    # Années → supprimées
+    result = re.sub(r'\b20\d{2}\b', '', result)
+    
+    # Noms propres → supprimés
+    noms_propres = ['jean', 'marie', 'pierre', 'paul', 'alice', 'bob', 'urne', 'dé']
+    for nom in noms_propres:
+        result = re.sub(rf'\b{nom}\b', '', result, flags=re.IGNORECASE)
+    
+    # Nettoyer espaces multiples
+    result = re.sub(r'\s+', ' ', result)
+    
+    # Nettoyer ponctuation orpheline
+    result = re.sub(r'\s*[,;]\s*[,;]+', ',', result)
+    result = re.sub(r'^\s*[,;\.]\s*', '', result)
+    result = re.sub(r'\s*\.\s*$', '', result)
+    
+    return result.strip()
+
+
+def operation_traduction(texte: str) -> str:
+    """
+    OPÉRATION 2 : TRADUCTION - Verbe impératif → Interrogatif méthode
+    - "Démontrer que" → "Comment démontrer que"
+    - "Calculer" → "Comment calculer"
+    """
+    result = texte.strip()
+    
+    # Liste des verbes d'action à transformer
+    verbes = [
+        'démontrer', 'montrer', 'prouver', 'établir',
+        'calculer', 'déterminer', 'trouver', 'chercher',
+        'étudier', 'analyser', 'examiner',
+        'résoudre', 'vérifier', 'justifier',
+        'exprimer', 'expliciter', 'préciser',
+        'en déduire', 'déduire', 'conclure'
+    ]
+    
+    # Vérifier si commence déjà par "Comment"
+    if result.lower().startswith('comment'):
+        return result
+    
+    # Chercher le verbe au début et préfixer par "Comment"
+    for verbe in verbes:
+        pattern = rf'^{verbe}\b'
+        if re.match(pattern, result, re.IGNORECASE):
+            # Garder la casse du verbe original mais ajouter "Comment"
+            return f"Comment {result[0].lower()}{result[1:]}"
+    
+    # Si aucun verbe trouvé au début, chercher dans la phrase
+    for verbe in verbes:
+        if verbe in result.lower():
+            return f"Comment {result[0].lower()}{result[1:]}"
+    
+    # Fallback : ajouter "Comment" quand même
+    return f"Comment {result[0].lower()}{result[1:]}"
+
+
+def operation_standardisation(texte: str) -> str:
+    """
+    OPÉRATION 3 : STANDARDISATION - Corrections grammaticales + ponctuation
+    - Élisions françaises (de une → d'une, que une → qu'une)
+    - Point d'interrogation final
+    """
+    result = texte
+    
+    # === ÉLISIONS FRANÇAISES ===
+    result = re.sub(r'\bde une\b', "d'une", result)
+    result = re.sub(r'\bque une\b', "qu'une", result)
+    result = re.sub(r'\bla une\b', "l'une", result)
+    result = re.sub(r'\bde un\b', "d'un", result)
+    result = re.sub(r'\bque un\b', "qu'un", result)
+    result = re.sub(r'\bsi il\b', "s'il", result)
+    result = re.sub(r'\bde entier\b', "d'entier", result)
+    
+    # Nettoyer =k=k doublons
+    result = re.sub(r'=k=k', '=k', result)
+    result = re.sub(r'q=k', 'q', result)  # raison q, pas q=k
+    
+    # Nettoyer la fin de phrase
+    result = re.sub(r'\s*[\.,:;]+\s*$', '', result)
+    
+    # Ajouter le point d'interrogation final
+    if not result.endswith('?'):
+        result += ' ?'
+    
+    return result
+
+
+def mue_qi_vers_qc(qi_championne: str) -> str:
+    """
+    ALGORITHME DE MUE : Transforme la Qi Championne en titre QC
+    
+    Applique les 3 opérations dans l'ordre :
+    1. NETTOYAGE : Supprimer les valeurs spécifiques
+    2. TRADUCTION : Verbe → "Comment + verbe"
+    3. STANDARDISATION : Termes canoniques + ponctuation
+    """
+    # Étape 1 : Nettoyage
+    etape1 = operation_nettoyage(qi_championne)
+    
+    # Étape 2 : Traduction
+    etape2 = operation_traduction(etape1)
+    
+    # Étape 3 : Standardisation
+    etape3 = operation_standardisation(etape2)
+    
+    # Nettoyer et capitaliser
+    result = etape3.strip()
+    if result:
+        result = result[0].upper() + result[1:]
+    
+    # Limiter la longueur si trop long
+    if len(result) > 100:
+        # Couper proprement
+        result = result[:100].rsplit(' ', 1)[0] + '... ?'
+    
+    return result
+
+
+# =============================================================================
+# CLUSTERING Qi → QC (AXIOME : SÉLECTION + MUE)
+# =============================================================================
+
+def compute_qi_representativite(qi_text: str, all_qi_texts: List[str]) -> float:
+    """
+    Calcule le score de représentativité d'une Qi.
+    = Combien de mots-clés de cette Qi sont partagés avec les autres Qi du cluster.
+    """
+    qi_tokens = set(tokenize(qi_text))
+    if not qi_tokens:
+        return 0.0
+    
+    # Compter les occurrences de chaque token dans tout le cluster
+    all_tokens = Counter()
+    for txt in all_qi_texts:
+        all_tokens.update(tokenize(txt))
+    
+    # Score = somme des fréquences des tokens de cette Qi
+    score = sum(all_tokens.get(t, 0) for t in qi_tokens)
+    
+    return score
+
+
 def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dict]:
+    """
+    Clustering des Qi en QC selon l'AXIOME SMAXIA.
+    
+    PROCESSUS :
+    1. Regrouper les Qi par similarité
+    2. Pour chaque cluster, ÉLIRE la Qi Championne (meilleure représentativité)
+    3. Appliquer la MUE sur la Championne → Titre QC
+    """
     if not qis:
         return []
     
-    clusters = []
     ALPHA = 5.0
+    total_qi = len(qis)
     
+    # Étape 1: Clustering par similarité lexicale
+    clusters = []
     for qi in qis:
         toks = tokenize(qi.text)
         if not toks:
@@ -328,50 +534,96 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
             clusters[best_i]["qis"].append(qi)
             clusters[best_i]["rep_tokens"] = list(set(clusters[best_i]["rep_tokens"]) | set(toks))
         else:
-            clusters.append({"id": f"QC-{len(clusters)+1:02d}", "rep_tokens": toks, "qis": [qi]})
+            clusters.append({
+                "rep_tokens": toks,
+                "qis": [qi]
+            })
     
+    # Étape 2 & 3: Pour chaque cluster, élire la Championne et appliquer la MUE
     qc_out = []
-    total_qi = len(qis)
     
     for c in clusters:
-        qi_texts = [q.text for q in c["qis"]]
-        chapter = c["qis"][0].chapter if c["qis"] else ""
+        cluster_qis = c["qis"]
+        qi_texts = [q.text for q in cluster_qis]
+        n_q = len(cluster_qis)
         
-        # RÈGLE SMAXIA: Titre = "Comment ... ?"
-        titre = formuler_titre_qc_smaxia(qi_texts)
+        # === ÉLECTION : Trouver la Qi Championne ===
+        # Score de représentativité = combien cette Qi partage avec les autres
+        best_qi = None
+        best_representativite = -1
+        
+        for qi in cluster_qis:
+            rep_score = compute_qi_representativite(qi.text, qi_texts)
+            if rep_score > best_representativite:
+                best_representativite = rep_score
+                best_qi = qi
+        
+        if not best_qi:
+            best_qi = cluster_qis[0]
+        
+        # === MUE : Transformer la Championne en QC ===
+        titre = mue_qi_vers_qc(best_qi.text)
+        
+        # Concept pour ARI/FRT
         concept = extraire_concept_cle(qi_texts)
         
-        # Générer ARI/FRT/Déclencheurs basés sur le concept
+        # Générer ARI/FRT/Déclencheurs
         ari = generer_ari(concept)
         frt_data = generer_frt(concept)
         triggers = generer_declencheurs(concept, qi_texts)
         
-        n_q = len(qi_texts)
+        # Calculs F1/F2
         psi_q, sum_tj = compute_psi_q(qi_texts, "Terminale")
         
-        years = [q.year for q in c["qis"] if q.year is not None]
+        years = [q.year for q in cluster_qis if q.year]
         t_rec = max(0.5, datetime.now().year - max(years)) if years else None
         
-        score = compute_score_f2(n_q, total_qi, t_rec, psi_q, ALPHA)
+        # Score F2 du cluster
+        freq_ratio = n_q / total_qi
+        t_rec_safe = t_rec if t_rec else 5.0
+        recency_factor = 1 + (ALPHA / t_rec_safe)
+        score = round(freq_ratio * recency_factor * psi_q * 100, 1)
+        
+        # Chapter
+        chapter = best_qi.chapter if best_qi.chapter else ""
         
         # Evidence par sujet
         qi_by_file = defaultdict(list)
-        for q in c["qis"]:
+        for q in cluster_qis:
             qi_by_file[q.subject_file].append(q.text)
         
         evidence_by_subject = [{"Fichier": f, "Qis": qlist, "Count": len(qlist)} for f, qlist in qi_by_file.items()]
         evidence = [{"Fichier": f, "Qi": qi} for f, qlist in qi_by_file.items() for qi in qlist]
         
         qc_out.append({
-            "Chapitre": chapter, "QC_ID": c["id"], "FRT_ID": c["id"],
-            "Titre": titre, "Concept": concept,
-            "Score": score, "n_q": n_q, "Psi": psi_q, "N_tot": total_qi,
-            "t_rec": round(t_rec, 1) if t_rec else "N/A", "Alpha": ALPHA, "Sum_Tj": sum_tj,
-            "Triggers": triggers, "ARI": ari, "FRT_DATA": frt_data,
-            "Evidence": evidence, "EvidenceBySubject": evidence_by_subject
+            "Chapitre": chapter,
+            "QC_ID": "",  # Sera assigné après tri
+            "FRT_ID": "",
+            "Titre": titre,
+            "Concept": concept,
+            "Qi_Championne": best_qi.text[:150] + "..." if len(best_qi.text) > 150 else best_qi.text,
+            "Score": score,
+            "n_q": n_q,
+            "Psi": round(psi_q, 2),
+            "N_tot": total_qi,
+            "t_rec": round(t_rec, 1) if t_rec else "N/A",
+            "Alpha": ALPHA,
+            "Sum_Tj": round(sum_tj, 2),
+            "Triggers": triggers,
+            "ARI": ari,
+            "FRT_DATA": frt_data,
+            "Evidence": evidence,
+            "EvidenceBySubject": evidence_by_subject
         })
     
+    # Trier par Score décroissant
     qc_out.sort(key=lambda x: x["Score"], reverse=True)
+    
+    # Numéroter les QC par ordre de score
+    for i, qc in enumerate(qc_out):
+        qc["QC_ID"] = f"QC-{i+1:02d}"
+        qc["FRT_ID"] = f"QC-{i+1:02d}"
+    
     return qc_out
 
 
@@ -587,7 +839,7 @@ def compute_saturation_real(df_atoms) -> 'pd.DataFrame':
     return pd.DataFrame(data)
 
 
-VERSION = "V4.0-COMMENT-SMAXIA-20241224"
+VERSION = "V4.2-MUE-INVARIANTS-20241224"
 
 
 # =============================================================================
