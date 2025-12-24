@@ -308,8 +308,111 @@ class QiItem:
 # =============================================================================
 # PRINCIPE : SÉLECTION + MUTATION (pas génération inventive)
 # 1. ÉLECTION : Trouver la Qi Championne (meilleur score de représentativité)
-# 2. MUE : Transformer cette Qi en QC via 3 opérations strictes
+# 2. RÉPARATION : Décoller les mots si nécessaire
+# 3. MUE : Transformer cette Qi en QC via 3 opérations strictes
 # =============================================================================
+
+def reparer_texte_colle(texte: str) -> str:
+    """
+    RÉPARATION : Sépare les mots collés issus de l'extraction PDF défectueuse.
+    """
+    result = texte
+    
+    # Liste exhaustive des séparations
+    separations = [
+        # Expressions longues d'abord
+        (r'pourtoutentiernaturel', 'pour tout entier naturel '),
+        (r'pourtoutentier', 'pour tout entier '),
+        (r'entiernaturel', 'entier naturel '),
+        (r'uniquesolution', 'unique solution '),
+        (r'équationdifférentielle', 'équation différentielle '),
+        (r'valeurapprochée', 'valeur approchée '),
+        
+        # Verbes + articles/conjonctions
+        (r'([Dd]émontrer)(que)', r'\1 \2'),
+        (r'([Mm]ontrer)(que)', r'\1 \2'),
+        (r'([Pp]rouver)(que)', r'\1 \2'),
+        (r'([Vv]érifier)(que)', r'\1 \2'),
+        (r'([Cc]alculer)(la|le|les|une|un|l\')', r'\1 \2'),
+        (r'([Dd]éterminer)(la|le|les|une|un|l\')', r'\1 \2'),
+        (r'([Éé]tudier)(la|le|les|une|un|l\')', r'\1 \2'),
+        (r'([Rr]ésoudre)(une|un|l\')', r'\1 \2'),
+        (r'([Ee]n)(déduire)', r'\1 \2'),
+        (r'([Dd]éduire)(que)', r'\1 \2'),
+        
+        # que + suite
+        (r'(que)(la)', r'\1 \2'),
+        (r'(que)(le)', r'\1 \2'),
+        (r'(que)(l\')', r'\1 \2'),
+        (r'(que)(pour)', r'\1 \2'),
+        (r'(que)(une)', r'\1 \2'),
+        (r'(que)(un)', r'\1 \2'),
+        (r'(que)(f\()', r'\1 \2'),
+        
+        # la/le/une + nom
+        (r'(la)(limite)', r'\1 \2'),
+        (r'(la)(suite)', r'\1 \2'),
+        (r'(la)(fonction)', r'\1 \2'),
+        (r'(la)(probabilité)', r'\1 \2'),
+        (r'(la)(dérivée)', r'\1 \2'),
+        (r'(le)(signe)', r'\1 \2'),
+        (r'(le)(tableau)', r'\1 \2'),
+        (r'(une)(suite)', r'\1 \2'),
+        (r'(une)(fonction)', r'\1 \2'),
+        (r'(une)(unique)', r'\1 \2'),
+        (r'(une)(équation)', r'\1 \2'),
+        (r'(un)(entier)', r'\1 \2'),
+        
+        # Prépositions
+        (r'(de)(la|le|l\'|raison)', r'\1 \2'),
+        (r'(du)(domaine)', r'\1 \2'),
+        (r'(sur)(l\'|\[)', r'\1 \2'),
+        (r'(dans)(l\')', r'\1 \2'),
+        (r'(pour)(tout)', r'\1 \2'),
+        (r'(tout)(entier)', r'\1 \2'),
+        (r'(entier)(naturel)', r'\1 \2'),
+        (r'(naturel)(n)', r'\1 \2'),
+        
+        # Verbes/adjectifs
+        (r'(suite)(est)', r'\1 \2'),
+        (r'(est)(géométrique)', r'\1 \2'),
+        (r'(est)(arithmétique)', r'\1 \2'),
+        (r'(est)(vraie)', r'\1 \2'),
+        (r'(est)(croissante)', r'\1 \2'),
+        (r'(est)(décroissante)', r'\1 \2'),
+        (r'(admet)(une)', r'\1 \2'),
+        (r'(limite)(de)', r'\1 \2'),
+        (r'(tend)(vers)', r'\1 \2'),
+        (r'(quand)(n)', r'\1 \2'),
+        (r'(n)(tend)', r'\1 \2'),
+        (r'(par)(récurrence)', r'\1 \2'),
+        (r'(géométrique)(de)', r'\1 \2'),
+        (r'(raison)(q)', r'\1 \2'),
+        (r'(solution)(sur)', r'\1 \2'),
+        (r'(aire)(du)', r'\1 \2'),
+        
+        # Cas spéciaux avec =
+        (r'(=k)(admet)', r'\1 \2'),
+        (r'(\))(admet)', r'\1 \2'),
+        (r'(\))(est)', r'\1 \2'),
+        
+        # suite + est
+        (r'(suite)\(', r'\1 ('),
+    ]
+    
+    for pattern, replacement in separations:
+        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    
+    # Règle générique : insérer espace avant majuscule au milieu d'un mot
+    result = re.sub(r'([a-zéèêëàâùûîïôç])([A-ZÉÈÊËÀÂÙÛÎÏÔÇ])', r'\1 \2', result)
+    
+    # Règle : espace après ponctuation si suivi d'une lettre
+    result = re.sub(r'([,;])([a-zA-ZéèêëàâùûîïôçÉÈÊËÀÂÙÛÎÏÔÇ])', r'\1 \2', result)
+    
+    # Nettoyer les espaces multiples
+    result = re.sub(r'\s+', ' ', result)
+    
+    return result.strip()
 
 def operation_nettoyage(texte: str) -> str:
     """
@@ -333,13 +436,13 @@ def operation_nettoyage(texte: str) -> str:
     result = re.sub(r'\]\s*-∞\s*[;,]\s*\+?∞\s*\[', ']-∞;+∞[', result)
     
     # f(x)=0,7 → f(x)=k (garder la structure équation)
-    result = re.sub(r'([fgh])\s*\(\s*[txns]\s*\)\s*=\s*-?\d+[,\.]?\d*', r'\1(x)=k', result)
+    result = re.sub(r'([fgh])\s*\(\s*[txns]\s*\)\s*=\s*-?\d+[,\.]?\d*', r'\1(x)=k ', result)
     
     # f(t), g(x), h(n) → f(x) (variable canonique)
     result = re.sub(r'\b([fgh])\s*\(\s*[txns]\s*\)', r'\1(x)', result)
     
     # Nombres décimaux isolés (après =) → k
-    result = re.sub(r'=\s*-?\d+[,\.]?\d*', '=k', result)
+    result = re.sub(r'=\s*-?\d+[,\.]?\d*', '=k ', result)
     
     # la suite (u_n), la suite (v_n) → une suite
     result = re.sub(r'la suite\s*\(\s*[uvw]\s*_?\s*n\s*\)', 'une suite', result)
@@ -451,18 +554,22 @@ def mue_qi_vers_qc(qi_championne: str) -> str:
     """
     ALGORITHME DE MUE : Transforme la Qi Championne en titre QC
     
-    Applique les 3 opérations dans l'ordre :
-    1. NETTOYAGE : Supprimer les valeurs spécifiques
+    Applique les 4 opérations dans l'ordre :
+    0. RÉPARATION : Décoller les mots si nécessaire
+    1. NETTOYAGE : Remplacer constantes → invariants
     2. TRADUCTION : Verbe → "Comment + verbe"
-    3. STANDARDISATION : Termes canoniques + ponctuation
+    3. STANDARDISATION : Grammaire + ponctuation
     """
-    # Étape 1 : Nettoyage
-    etape1 = operation_nettoyage(qi_championne)
+    # Étape 0 : Réparation du texte collé
+    etape0 = reparer_texte_colle(qi_championne)
     
-    # Étape 2 : Traduction
+    # Étape 1 : Nettoyage (constantes → invariants)
+    etape1 = operation_nettoyage(etape0)
+    
+    # Étape 2 : Traduction (verbe → "Comment + verbe")
     etape2 = operation_traduction(etape1)
     
-    # Étape 3 : Standardisation
+    # Étape 3 : Standardisation (grammaire + ponctuation)
     etape3 = operation_standardisation(etape2)
     
     # Nettoyer et capitaliser
@@ -471,9 +578,9 @@ def mue_qi_vers_qc(qi_championne: str) -> str:
         result = result[0].upper() + result[1:]
     
     # Limiter la longueur si trop long
-    if len(result) > 100:
+    if len(result) > 120:
         # Couper proprement
-        result = result[:100].rsplit(' ', 1)[0] + '... ?'
+        result = result[:120].rsplit(' ', 1)[0] + '... ?'
     
     return result
 
@@ -839,7 +946,7 @@ def compute_saturation_real(df_atoms) -> 'pd.DataFrame':
     return pd.DataFrame(data)
 
 
-VERSION = "V4.2-MUE-INVARIANTS-20241224"
+VERSION = "V4.3-MUE-REPAIR-20241224"
 
 
 # =============================================================================
