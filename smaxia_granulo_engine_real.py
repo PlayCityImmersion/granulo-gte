@@ -792,3 +792,9 @@ def audit_external_real(pdf_bytes: bytes, qc_df, chapter_filter: str = None) -> 
         })
     
     return round((matched / len(qi_texts)) * 100 if qi_texts else 0, 1), results
+
+# =============================================================================
+# VERSION MARKER - V3.1 POST-AUDIT GPT - 2024-12-24
+# Si vous voyez PV164.pdf, ce fichier N'EST PAS déployé correctement!
+# =============================================================================
+VERSION = "V3.1-AUDIT-GPT-20241224"
