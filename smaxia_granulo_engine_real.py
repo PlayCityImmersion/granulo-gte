@@ -1,23 +1,28 @@
 # smaxia_granulo_engine_real.py
 # =============================================================================
-# SMAXIA - MOTEUR GRANULO RÉEL V2 (SCRAPING AMÉLIORÉ)
+# SMAXIA - MOTEUR GRANULO V3 (POST-AUDIT GPT)
 # =============================================================================
-# - Navigation récursive pour trouver les vrais PDFs
-# - Filtrage strict du contenu mathématique
-# - Support multi-sources (APMEP, etc.)
+# Correctifs appliqués:
+# 1. Suppression "un", "vn", "wn" ambigus → patterns explicites u_n, u(n)
+# 2. is_math_content() strict: question + math obligatoire
+# 3. Split non-capturant dans extract_qi_from_text()
+# 4. detect_year() sans invention (None si inconnu)
+# 5. BFS récursif réel pour scraping
+# 6. Audit log des rejets
+# =============================================================================
+# NOTE: Paramètres hardcodés marqués [P3-CONFIG] pour migration vers Academic Pack
 # =============================================================================
 
 from __future__ import annotations
 
 import io
-import math
 import re
 import time
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 from collections import Counter, defaultdict
 from datetime import datetime
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import requests
 import pdfplumber
@@ -25,37 +30,37 @@ from bs4 import BeautifulSoup
 
 
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION [P3-CONFIG: À charger depuis Academic Pack]
 # =============================================================================
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 REQ_TIMEOUT = 25
 MAX_PDF_MB = 30
 MIN_QI_CHARS = 25
 
-# URLs de pages contenant des sujets (à explorer récursivement)
-APMEP_SUBJECT_PAGES = [
+# [P3-CONFIG] Sources par pays - France pour test
+SEED_URLS_FRANCE = [
     "https://www.apmep.fr/Annee-2025",
     "https://www.apmep.fr/Annee-2024",
     "https://www.apmep.fr/Annee-2023",
-    "https://www.apmep.fr/Annee-2022",
-    "https://www.apmep.fr/Annee-2021",
     "https://www.apmep.fr/Annales-Terminale-Generale",
 ]
 
-
 # =============================================================================
-# MOTS-CLÉS PAR CHAPITRE
+# TAXONOMIES [P3-CONFIG: À charger depuis Academic Pack par pays]
 # =============================================================================
+# CORRECTIF 1: Suppression des tokens ambigus (un, vn, wn)
+# Remplacés par patterns explicites
 CHAPTER_KEYWORDS = {
     "SUITES NUMÉRIQUES": {
         "suite", "suites", "arithmétique", "géométrique", "raison", "récurrence",
         "limite", "convergence", "monotone", "bornée", "terme général", "somme",
-        "croissante", "décroissante", "adjacentes", "u_n", "un", "vn", "wn"
+        "croissante", "décroissante", "adjacentes"
+        # SUPPRIMÉ: "un", "vn", "wn" - trop ambigus
     },
     "FONCTIONS": {
         "fonction", "dérivée", "dérivation", "primitive", "intégrale", "limite",
         "continuité", "asymptote", "tangente", "extremum", "maximum", "minimum",
-        "convexe", "concave", "tvi", "logarithme", "exponentielle", "ln", "exp"
+        "convexe", "concave", "logarithme", "exponentielle"
     },
     "PROBABILITÉS": {
         "probabilité", "aléatoire", "événement", "indépendance", "conditionnelle",
@@ -63,204 +68,186 @@ CHAPTER_KEYWORDS = {
     },
     "GÉOMÉTRIE": {
         "vecteur", "droite", "plan", "espace", "repère", "coordonnées",
-        "orthogonal", "colinéaire", "produit scalaire", "équation"
+        "orthogonal", "colinéaire", "produit scalaire", "équation cartésienne"
     },
-    "MÉCANIQUE": {
-        "force", "mouvement", "vitesse", "accélération", "énergie", "travail",
-        "puissance", "newton", "cinétique", "potentielle"
-    },
-    "ONDES": {
-        "onde", "fréquence", "période", "longueur", "amplitude", "propagation"
-    }
 }
 
-# Verbes indicateurs de questions mathématiques
 QUESTION_VERBS = {
     "calculer", "déterminer", "montrer", "démontrer", "justifier", "prouver",
     "étudier", "vérifier", "exprimer", "établir", "résoudre", "tracer",
-    "conjecturer", "interpréter", "expliciter", "préciser", "donner",
-    "en déduire", "déterminer", "retrouver"
+    "conjecturer", "interpréter", "expliciter", "préciser", "donner", "déduire"
 }
 
-# Mots à EXCLURE (éditoriaux, sommaires, etc.)
 EXCLUDE_WORDS = {
     "sommaire", "édito", "éditorial", "rédaction", "abonnement", "adhésion",
-    "bulletin", "revue", "publication", "copyright", "tous droits", "flux rss"
+    "bulletin", "revue", "publication", "copyright", "tous droits", "flux rss",
+    "table des matières", "index", "préface", "avant-propos"
 }
 
+# [P3-CONFIG] Niveaux et coefficients δ
+DELTA_NIVEAU = {"Terminale": 1.0, "Première": 0.8, "Seconde": 0.6}
 
-# =============================================================================
-# TRANSFORMATIONS COGNITIVES (F1)
-# =============================================================================
+# Transformations cognitives pour F1
 COGNITIVE_TRANSFORMS = {
-    "identifier": 0.1, "lire": 0.1, "recopier": 0.05,
     "calculer": 0.3, "simplifier": 0.25, "factoriser": 0.35,
     "développer": 0.3, "substituer": 0.25,
     "dériver": 0.4, "intégrer": 0.45, "résoudre": 0.4,
     "démontrer": 0.5, "raisonner": 0.45,
     "récurrence": 0.6, "limite": 0.5, "convergence": 0.55,
-    "théorème": 0.5, "changement_variable": 0.55,
-    "optimisation": 0.7, "modélisation": 0.65
+    "théorème": 0.5, "optimisation": 0.7, "modélisation": 0.65
 }
 
 EPSILON_PSI = 0.1
-DELTA_NIVEAU = {"Terminale": 1.0, "Première": 0.8, "Seconde": 0.6}
+
+
+# =============================================================================
+# PATTERNS MATHÉMATIQUES STRICTS (CORRECTIF 2)
+# =============================================================================
+# Pattern pour u_n, u(n), v_n, etc. - plus strict que le mot "un"
+SUITE_PATTERN_RE = re.compile(r'\b[uvw]\s*[_\(]\s*n\s*[\)\}]?|\b[uvw]\s*[_\(]\s*n\s*[+\-]\s*\d', re.IGNORECASE)
+
+# Symboles mathématiques
+MATH_SYMBOL_RE = re.compile(r'[=≤≥≠∞∑∫√→×÷±]|\\frac|\\sum|\\int|\d+[,\.]\d+|[a-z]\s*\([a-z]\)')
+
+# Pattern exercice/question
+EXERCISE_RE = re.compile(r'\b(?:exercice|question|partie|problème)\s*\d*\b', re.IGNORECASE)
 
 
 # =============================================================================
 # OUTILS TEXTE
 # =============================================================================
 def normalize_text(text: str) -> str:
-    t = text.lower()
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
+    return re.sub(r"\s+", " ", text.lower()).strip()
 
 
 def tokenize(text: str) -> List[str]:
-    t = normalize_text(text)
-    return re.findall(r"[a-zàâçéèêëîïôûùüÿñæœ0-9]+", t)
+    return re.findall(r"[a-zàâçéèêëîïôûùüÿñæœ]{3,}", normalize_text(text))
 
 
 def jaccard_similarity(a: List[str], b: List[str]) -> float:
     sa, sb = set(a), set(b)
     if not sa and not sb:
         return 0.0
-    inter = len(sa & sb)
-    union = len(sa | sb)
-    return inter / union if union else 0.0
+    return len(sa & sb) / len(sa | sb)
 
 
+# =============================================================================
+# CORRECTIF 2: is_math_content() STRICT
+# =============================================================================
 def is_math_content(text: str) -> bool:
-    """Vérifie si le texte contient du contenu mathématique réel."""
+    """
+    Vérifie si le texte est du contenu mathématique RÉEL.
+    Condition stricte: (verbe + indice_math) OU (>=2 keywords + indice_math)
+    """
     text_lower = text.lower()
     
-    # Exclure les contenus éditoriaux
+    # Exclusion dure
     if any(excl in text_lower for excl in EXCLUDE_WORDS):
         return False
     
-    # Vérifier la présence de verbes de question
-    has_verb = any(verb in text_lower for verb in QUESTION_VERBS)
+    # Indices forts
+    has_question_verb = any(re.search(rf"\b{v}\b", text_lower) for v in QUESTION_VERBS)
+    has_math_symbol = bool(MATH_SYMBOL_RE.search(text))
+    has_suite_pattern = bool(SUITE_PATTERN_RE.search(text))
+    has_exercise = bool(EXERCISE_RE.search(text))
     
-    # Vérifier la présence de termes mathématiques
+    # Indices math (symbole OU pattern suite OU exercice)
+    has_math_indicator = has_math_symbol or has_suite_pattern or has_exercise
+    
+    # Keywords: exiger >=2 mots-clés stricts
     all_math_keywords = set()
     for keywords in CHAPTER_KEYWORDS.values():
         all_math_keywords.update(keywords)
     
     toks = set(tokenize(text))
-    has_math = len(toks & all_math_keywords) >= 1
+    kw_hits = len(toks & all_math_keywords)
     
-    # Vérifier la présence de formules (symboles math)
-    has_formula = bool(re.search(r'[=+\-×÷∑∫√∞αβγδ]|u[_\(]|f\(|ln\(|exp\(|\d+[,\.]\d+', text))
-    
-    return has_verb or (has_math and has_formula) or (has_math and len(text) > 50)
+    # Condition stricte
+    return (has_question_verb and has_math_indicator) or (kw_hits >= 2 and has_math_indicator)
 
 
 # =============================================================================
-# SCRAPING AMÉLIORÉ
+# CORRECTIF 5: BFS RÉCURSIF RÉEL
 # =============================================================================
-def get_base_url(url: str) -> str:
-    """Extrait l'URL de base."""
-    parsed = urlparse(url)
-    return f"{parsed.scheme}://{parsed.netloc}"
-
-
-def scrape_pdf_links_deep(start_urls: List[str], limit: int) -> List[str]:
+def scrape_pdf_links_bfs(seed_urls: List[str], limit: int, max_pages: int = 100) -> Tuple[List[str], List[dict]]:
     """
-    Scraping en profondeur pour trouver les vrais PDFs de sujets.
+    BFS récursif réel pour collecter les PDFs de sujets.
+    Retourne (pdfs, audit_log) pour traçabilité.
     """
-    all_pdfs = []
+    base = "https://www.apmep.fr"
+    queue = list(dict.fromkeys(seed_urls))
     visited = set()
-    base_url = "https://www.apmep.fr"
+    pdfs = []
+    audit_log = []
     
-    # D'abord, explorer les pages d'années spécifiques
-    pages_to_explore = list(APMEP_SUBJECT_PAGES)
+    def normalize_link(href: str) -> str:
+        if href.startswith("http"):
+            return href
+        return urljoin(base + "/", href.lstrip("/"))
     
-    # Ajouter les URLs fournies par l'utilisateur
-    for url in start_urls:
-        if url not in pages_to_explore:
-            pages_to_explore.append(url)
-    
-    for page_url in pages_to_explore:
-        if len(all_pdfs) >= limit:
-            break
-            
-        if page_url in visited:
+    while queue and len(visited) < max_pages and len(pdfs) < limit * 3:
+        url = queue.pop(0).split("#")[0]
+        if url in visited:
             continue
-        visited.add(page_url)
+        visited.add(url)
         
         try:
-            r = requests.get(page_url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT)
+            r = requests.get(url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT)
             r.raise_for_status()
             soup = BeautifulSoup(r.text, "html.parser")
-            
-            # Trouver tous les liens PDF
-            for a in soup.find_all("a", href=True):
-                href = a["href"]
-                
-                if ".pdf" in href.lower():
-                    # Construire l'URL complète
-                    if href.startswith("http"):
-                        pdf_url = href
-                    elif href.startswith("/"):
-                        pdf_url = base_url + href
-                    else:
-                        pdf_url = base_url + "/" + href
-                    
-                    # Filtrer : garder seulement les sujets (pas les corrigés pour l'instant, ou les deux)
-                    filename_lower = pdf_url.lower()
-                    
-                    # Éviter les doublons
-                    if pdf_url not in all_pdfs:
-                        # Priorité aux sujets non corrigés
-                        if "corrig" not in filename_lower:
-                            all_pdfs.insert(0, pdf_url)  # Priorité
-                        else:
-                            all_pdfs.append(pdf_url)
-                    
-                    if len(all_pdfs) >= limit * 2:  # Marge
-                        break
-                        
         except Exception as e:
-            print(f"Erreur scraping {page_url}: {e}")
+            audit_log.append({"url": url, "status": "error", "reason": str(e)})
             continue
-    
-    # Dédoublonner et limiter
-    seen = set()
-    unique_pdfs = []
-    for pdf in all_pdfs:
-        if pdf not in seen:
-            seen.add(pdf)
-            unique_pdfs.append(pdf)
-        if len(unique_pdfs) >= limit:
-            break
-    
-    return unique_pdfs
-
-
-def scrape_single_page(url: str) -> List[str]:
-    """Scrape une seule page pour les PDFs."""
-    pdfs = []
-    base_url = get_base_url(url)
-    
-    try:
-        r = requests.get(url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
         
+        # 1) Collecter les PDFs directs
         for a in soup.find_all("a", href=True):
             href = a["href"]
-            if ".pdf" in href.lower():
-                if href.startswith("http"):
-                    pdfs.append(href)
-                elif href.startswith("/"):
-                    pdfs.append(base_url + href)
+            if ".pdf" not in href.lower():
+                continue
+                
+            pdf_url = normalize_link(href)
+            fn_lower = pdf_url.lower().split("/")[-1]
+            
+            # Filtrer les non-sujets
+            if any(x in fn_lower for x in ["bulletin", "lettre", "actualite", "pv1", "pv2"]):
+                audit_log.append({"url": pdf_url, "status": "rejected", "reason": "non-sujet (bulletin/lettre)"})
+                continue
+            
+            if pdf_url not in pdfs:
+                # Priorité aux sujets (non-corrigés en premier)
+                if "corrig" not in fn_lower:
+                    pdfs.insert(0, pdf_url)
                 else:
-                    pdfs.append(url.rsplit("/", 1)[0] + "/" + href)
-                    
-    except Exception as e:
-        print(f"Erreur: {e}")
+                    pdfs.append(pdf_url)
+                audit_log.append({"url": pdf_url, "status": "accepted", "reason": "PDF sujet candidat"})
+        
+        # 2) Explorer les sous-pages pertinentes (BFS)
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            nxt = normalize_link(href)
+            nxt_lower = nxt.lower()
+            
+            if "apmep.fr" not in nxt_lower:
+                continue
+            
+            # Pages pertinentes pour les sujets
+            if any(k in nxt_lower for k in ["annee-", "bac-", "annales", "terminale", "sujets"]):
+                nxt_clean = nxt.split("#")[0]
+                if nxt_clean not in visited and nxt_clean not in queue:
+                    queue.append(nxt_clean)
+        
+        time.sleep(0.15)  # Politesse anti-ban
     
-    return pdfs
+    # Dédoublonner et limiter
+    out, seen = [], set()
+    for p in pdfs:
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+        if len(out) >= limit:
+            break
+    
+    return out, audit_log
 
 
 # =============================================================================
@@ -270,17 +257,14 @@ def download_pdf(url: str) -> Optional[bytes]:
     try:
         r = requests.get(url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT, stream=True)
         r.raise_for_status()
-
+        
         cl = r.headers.get("Content-Length")
         if cl and int(cl) / (1024 * 1024) > MAX_PDF_MB:
             return None
-
+        
         data = r.content
-        if len(data) > MAX_PDF_MB * 1024 * 1024:
-            return None
-        return data
-    except Exception as e:
-        print(f"Erreur download {url}: {e}")
+        return data if len(data) <= MAX_PDF_MB * 1024 * 1024 else None
+    except Exception:
         return None
 
 
@@ -291,14 +275,12 @@ def extract_pdf_text(pdf_bytes: bytes, max_pages: int = 30) -> str:
     text_parts = []
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-            n = min(len(pdf.pages), max_pages)
-            for i in range(n):
-                page = pdf.pages[i]
-                t = page.extract_text() or ""
+            for i in range(min(len(pdf.pages), max_pages)):
+                t = pdf.pages[i].extract_text() or ""
                 if t.strip():
                     text_parts.append(t)
-    except Exception as e:
-        print(f"Erreur extraction PDF: {e}")
+    except Exception:
+        pass
     return "\n".join(text_parts)
 
 
@@ -308,17 +290,21 @@ def extract_pdf_text(pdf_bytes: bytes, max_pages: int = 30) -> str:
 def detect_chapter(text: str, matiere: str = "MATHS") -> str:
     toks = set(tokenize(text))
     
-    if matiere == "MATHS":
-        chapters = ["SUITES NUMÉRIQUES", "FONCTIONS", "PROBABILITÉS", "GÉOMÉTRIE"]
-    else:
-        chapters = ["MÉCANIQUE", "ONDES"]
+    # Vérifier aussi les patterns de suite
+    has_suite_pattern = bool(SUITE_PATTERN_RE.search(text))
     
+    chapters = list(CHAPTER_KEYWORDS.keys())
     best_chapter = chapters[0]
     best_score = 0
     
     for chapter in chapters:
         keywords = CHAPTER_KEYWORDS.get(chapter, set())
         score = len(toks & keywords)
+        
+        # Bonus pour pattern suite
+        if chapter == "SUITES NUMÉRIQUES" and has_suite_pattern:
+            score += 3
+        
         if score > best_score:
             best_score = score
             best_chapter = chapter
@@ -329,7 +315,7 @@ def detect_chapter(text: str, matiere: str = "MATHS") -> str:
 def detect_nature(filename: str, text: str) -> str:
     combined = (filename + " " + text[:2000]).lower()
     
-    if any(k in combined for k in ["bac", "baccalauréat", "métropole", "metropole", "polynesie", "antilles", "asie"]):
+    if any(k in combined for k in ["bac", "baccalauréat", "métropole", "polynesie", "antilles", "asie", "amerique"]):
         return "BAC"
     if any(k in combined for k in ["concours"]):
         return "CONCOURS"
@@ -338,118 +324,100 @@ def detect_nature(filename: str, text: str) -> str:
     if any(k in combined for k in ["interro"]):
         return "INTERRO"
     
-    return "BAC"  # Par défaut pour APMEP
+    return "EXAMEN"  # Neutre par défaut
 
 
+# CORRECTIF 4: Ne pas inventer l'année
 def detect_year(filename: str, text: str) -> Optional[int]:
-    # Chercher dans le nom de fichier
+    """Retourne None si année non trouvée (pas d'invention)."""
     match = re.search(r"20[12]\d", filename)
     if match:
         return int(match.group())
     
-    # Chercher dans le texte
     match = re.search(r"20[12]\d", text[:1500])
     if match:
         return int(match.group())
     
-    return datetime.now().year
+    return None  # CORRECTIF: pas d'invention
 
 
 # =============================================================================
-# EXTRACTION Qi (AMÉLIORÉE POUR FORMAT APMEP/BAC)
+# CORRECTIF 3: EXTRACTION Qi AVEC SPLIT NON-CAPTURANT
 # =============================================================================
-def extract_qi_from_text(text: str, chapter_filter: str = None) -> List[str]:
-    """Extrait les questions individuelles avec parsing adapté au format BAC."""
+def extract_qi_from_text(text: str, chapter_filter: str = None) -> Tuple[List[str], List[dict]]:
+    """
+    Extrait les Qi avec audit log.
+    Retourne (qi_list, audit_log).
+    """
+    audit_log = []
     
-    # Nettoyer le texte
+    # Nettoyer
     raw = text.replace("\r", "\n")
-    
-    # Supprimer les headers APMEP répétitifs
-    raw = re.sub(r'\.?P\.?E\.?M\.?P\.?A\.?\s*\d*', '', raw)
+    raw = re.sub(r'A\.?P\.?M\.?E\.?P\.?', '', raw)
     raw = re.sub(r'Baccalauréat.*?sujet\s*\d*', '', raw, flags=re.IGNORECASE)
-    raw = re.sub(r'A\.P\.M\.E\.P\.', '', raw)
     
-    # Découper par questions numérotées (1., 2., a., b., etc.)
-    # Pattern pour détecter les débuts de questions
+    # CORRECTIF 3: Patterns NON-CAPTURANTS
     question_patterns = [
-        r'\n\s*(\d+)\.\s+',           # "1. ", "2. "
-        r'\n\s*(\d+)\)\s+',           # "1) ", "2) "
-        r'\n\s*([a-z])\.\s+',         # "a. ", "b. "
-        r'\n\s*([a-z])\)\s+',         # "a) ", "b) "
-        r'\n\s*Affirmation\s*\d+\s*:', # "Affirmation 1:"
-        r'\n\s*EXERCICE\s+\d+',       # "EXERCICE 1"
+        r'\n\s*(?:\d+)\.\s+',           # "1. "
+        r'\n\s*(?:\d+)\)\s+',           # "1) "
+        r'\n\s*(?:[a-z])\.\s+',         # "a. "
+        r'\n\s*(?:[a-z])\)\s+',         # "a) "
+        r'\n\s*Affirmation\s*\d+\s*:',  # "Affirmation 1:"
+        r'\n\s*EXERCICE\s+\d+',         # "EXERCICE 1"
     ]
-    
-    # Combiner les patterns
     combined_pattern = '|'.join(question_patterns)
-    
-    # Découper le texte en segments
     segments = re.split(combined_pattern, raw)
     
     candidates = []
     
     for segment in segments:
-        if not segment:
+        if not segment or not segment.strip():
             continue
-            
+        
         segment = segment.strip()
         
-        # Ignorer les segments trop courts
+        # Filtres de base
         if len(segment) < MIN_QI_CHARS:
+            audit_log.append({"text": segment[:50], "status": "rejected", "reason": "trop court"})
             continue
         
-        # Ignorer les contenus éditoriaux
-        segment_lower = segment.lower()
-        if any(excl in segment_lower for excl in EXCLUDE_WORDS):
+        if len(segment) > 500:
+            segment = segment[:500]
+        
+        # CORRECTIF 2: Validation stricte
+        if not is_math_content(segment):
+            audit_log.append({"text": segment[:50], "status": "rejected", "reason": "pas de contenu math"})
             continue
         
-        # Vérifier si c'est une vraie question mathématique
-        has_verb = any(re.search(rf"\b{v}\b", segment, re.IGNORECASE) for v in QUESTION_VERBS)
-        
-        # Vérifier la présence de termes mathématiques
-        all_math_keywords = set()
-        for keywords in CHAPTER_KEYWORDS.values():
-            all_math_keywords.update(keywords)
-        
-        toks = set(tokenize(segment))
-        has_math = len(toks & all_math_keywords) >= 1
-        
-        # Vérifier les mots-clés du chapitre si filtre actif
+        # Filtre chapitre si demandé
         if chapter_filter:
             keywords = CHAPTER_KEYWORDS.get(chapter_filter, set())
-            has_chapter_keyword = len(toks & keywords) >= 1
-        else:
-            has_chapter_keyword = True
+            toks = set(tokenize(segment))
+            has_keyword = len(toks & keywords) >= 1 or (chapter_filter == "SUITES NUMÉRIQUES" and SUITE_PATTERN_RE.search(segment))
+            if not has_keyword:
+                audit_log.append({"text": segment[:50], "status": "rejected", "reason": f"hors chapitre {chapter_filter}"})
+                continue
         
-        # Accepter si c'est une question avec du contenu math
-        if (has_verb or has_math) and has_chapter_keyword:
-            # Nettoyer le segment
-            segment = re.sub(r'\s+', ' ', segment).strip()
-            
-            # Tronquer si trop long
-            if len(segment) > 350:
-                segment = segment[:350].rsplit(' ', 1)[0] + "..."
-            
-            if len(segment) >= MIN_QI_CHARS:
-                candidates.append(segment)
+        # Nettoyage final
+        segment = re.sub(r'\s+', ' ', segment).strip()
+        if len(segment) > 350:
+            segment = segment[:350].rsplit(' ', 1)[0] + "..."
+        
+        candidates.append(segment)
+        audit_log.append({"text": segment[:50], "status": "accepted", "reason": "Qi valide"})
     
-    # Si pas assez de résultats, essayer une approche par blocs
+    # Fallback par blocs si peu de résultats
     if len(candidates) < 3:
         blocks = re.split(r'\n\s*\n', raw)
         for b in blocks:
             b = b.strip()
             if len(b) < MIN_QI_CHARS or len(b) > 500:
                 continue
-            
-            b_lower = b.lower()
-            if any(excl in b_lower for excl in EXCLUDE_WORDS):
-                continue
-            
-            has_verb = any(v in b_lower for v in QUESTION_VERBS)
-            if has_verb:
+            if is_math_content(b) and b not in candidates:
                 b = re.sub(r'\s+', ' ', b).strip()
-                if b not in candidates:
-                    candidates.append(b)
+                if len(b) > 350:
+                    b = b[:350].rsplit(' ', 1)[0] + "..."
+                candidates.append(b)
     
     # Dédoublonnage
     seen = set()
@@ -460,48 +428,39 @@ def extract_qi_from_text(text: str, chapter_filter: str = None) -> List[str]:
             seen.add(k)
             out.append(x)
     
-    return out[:50]  # Limiter à 50 Qi max par PDF
+    return out[:50], audit_log
 
 
 # =============================================================================
-# F1 : Ψ_q (Poids Prédictif Purifié)
+# F1: Ψ_q (Poids Prédictif Purifié)
 # =============================================================================
 def compute_psi_q(qi_texts: List[str], niveau: str = "Terminale") -> float:
     if not qi_texts:
         return EPSILON_PSI
     
-    combined_text = " ".join(qi_texts).lower()
+    combined = " ".join(qi_texts).lower()
     
-    sum_tj = 0.0
-    for transform, weight in COGNITIVE_TRANSFORMS.items():
-        if transform in combined_text:
-            sum_tj += weight
-    
+    sum_tj = sum(w for t, w in COGNITIVE_TRANSFORMS.items() if t in combined)
     psi_brut = sum_tj + EPSILON_PSI
     delta_c = DELTA_NIVEAU.get(niveau, 1.0)
-    psi_ajuste = psi_brut * delta_c
     
-    max_psi_local = 3.0
-    psi_normalise = min(1.0, psi_ajuste / max_psi_local)
-    
-    return round(psi_normalise, 2)
+    return round(min(1.0, psi_brut * delta_c / 3.0), 2)
 
 
 # =============================================================================
-# F2 : Score(q) (Sélection Granulo)
+# F2: Score(q) (Sélection Granulo) - CORRECTIF 4: t_rec prudent
 # =============================================================================
-def compute_score_f2(n_q: int, n_total: int, t_rec: float, psi_q: float, 
-                     redundancy_penalty: float = 1.0, alpha: float = 5.0) -> float:
+def compute_score_f2(n_q: int, n_total: int, t_rec: Optional[float], psi_q: float, alpha: float = 5.0) -> float:
     if n_total == 0:
         return 0.0
     
     freq_ratio = n_q / n_total
-    t_rec_safe = max(0.5, t_rec)
+    
+    # CORRECTIF 4: Si année inconnue, pénaliser (t_rec=5 ans)
+    t_rec_safe = max(0.5, t_rec) if t_rec is not None else 5.0
     recency_factor = 1 + (alpha / t_rec_safe)
     
-    score = freq_ratio * recency_factor * psi_q * redundancy_penalty * 100
-    
-    return round(score, 1)
+    return round(freq_ratio * recency_factor * psi_q * 100, 1)
 
 
 # =============================================================================
@@ -511,20 +470,18 @@ def generate_ari(qi_texts: List[str], chapter: str) -> List[str]:
     combined = " ".join(qi_texts).lower()
     
     if chapter == "SUITES NUMÉRIQUES":
-        if any(k in combined for k in ["géométrique", "geometrique", "quotient"]):
-            return ["1. Exprimer u(n+1)", "2. Quotient u(n+1)/u(n)", "3. Simplifier", "4. Constante"]
-        if any(k in combined for k in ["arithmétique", "arithmetique", "différence"]):
+        if any(k in combined for k in ["géométrique", "quotient"]):
+            return ["1. Exprimer u(n+1)", "2. Quotient u(n+1)/u(n)", "3. Simplifier", "4. Constante q"]
+        if any(k in combined for k in ["arithmétique", "différence"]):
             return ["1. Exprimer u(n+1)", "2. Différence u(n+1)-u(n)", "3. Simplifier", "4. Constante r"]
-        if any(k in combined for k in ["limite", "convergence", "tend vers"]):
+        if any(k in combined for k in ["limite", "convergence"]):
             return ["1. Terme dominant", "2. Factorisation", "3. Limites usuelles", "4. Conclure"]
-        if any(k in combined for k in ["récurrence", "recurrence"]):
-            return ["1. Initialisation P(n0)", "2. Hérédité: supposer P(n)", "3. Démontrer P(n+1)", "4. Conclure"]
+        if any(k in combined for k in ["récurrence"]):
+            return ["1. Initialisation", "2. Hérédité", "3. Démontrer P(n+1)", "4. Conclure"]
     
     elif chapter == "FONCTIONS":
-        if any(k in combined for k in ["tvi", "valeurs intermédiaires", "unique solution"]):
-            return ["1. Continuité", "2. Monotonie", "3. Bornes", "4. TVI"]
-        if any(k in combined for k in ["dérivée", "derivee"]):
-            return ["1. Identifier f", "2. Dériver", "3. Simplifier f'", "4. Signe de f'"]
+        if any(k in combined for k in ["dérivée"]):
+            return ["1. Identifier f", "2. Dériver", "3. Simplifier f'", "4. Signe"]
     
     return ["1. Analyser", "2. Méthode", "3. Calculer", "4. Conclure"]
 
@@ -535,32 +492,17 @@ def generate_ari(qi_texts: List[str], chapter: str) -> List[str]:
 def generate_frt(qi_texts: List[str], chapter: str, triggers: List[str]) -> List[Dict]:
     combined = " ".join(qi_texts).lower()
     
-    if chapter == "SUITES NUMÉRIQUES":
-        if any(k in combined for k in ["géométrique", "geometrique"]):
-            return [
-                {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "L'énoncé demande de prouver qu'une suite est géométrique."},
-                {"type": "method", "title": "✅ 2. MÉTHODE RÉDIGÉE", "text": "1. Exprimer u(n+1).\n2. Calculer u(n+1)/u(n).\n3. Simplifier.\n4. Trouver q constant."},
-                {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "Oublier de vérifier u(n) ≠ 0."},
-                {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "La suite est géométrique de raison q."}
-            ]
-        if any(k in combined for k in ["limite", "convergence"]):
-            return [
-                {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "Forme indéterminée ∞/∞."},
-                {"type": "method", "title": "✅ 2. MÉTHODE RÉDIGÉE", "text": "1. Terme dominant.\n2. Factoriser.\n3. Limites usuelles."},
-                {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "Erreur de signe."},
-                {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "La suite converge vers L."}
-            ]
-        if any(k in combined for k in ["récurrence", "recurrence"]):
-            return [
-                {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "Démontrer une propriété pour tout n."},
-                {"type": "method", "title": "✅ 2. MÉTHODE RÉDIGÉE", "text": "1. Initialisation.\n2. Hérédité.\n3. Conclure."},
-                {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "Oublier l'initialisation."},
-                {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "Par récurrence, P(n) vraie pour tout n."}
-            ]
+    if chapter == "SUITES NUMÉRIQUES" and any(k in combined for k in ["géométrique"]):
+        return [
+            {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "Prouver qu'une suite est géométrique."},
+            {"type": "method", "title": "✅ 2. MÉTHODE", "text": "1. Exprimer u(n+1).\n2. Calculer u(n+1)/u(n).\n3. Simplifier.\n4. Constante q."},
+            {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "Vérifier u(n) ≠ 0."},
+            {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "Suite géométrique de raison q."}
+        ]
     
     return [
-        {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": f"Questions avec: {', '.join(triggers[:3]) if triggers else 'termes du chapitre'}"},
-        {"type": "method", "title": "✅ 2. MÉTHODE RÉDIGÉE", "text": "1. Identifier.\n2. Appliquer.\n3. Calculer.\n4. Conclure."},
+        {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": f"Questions: {', '.join(triggers[:3]) if triggers else 'voir déclencheurs'}"},
+        {"type": "method", "title": "✅ 2. MÉTHODE", "text": "1. Identifier.\n2. Appliquer.\n3. Calculer.\n4. Conclure."},
         {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "Vérifier les conditions."},
         {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "Répondre à la question."}
     ]
@@ -570,14 +512,13 @@ def generate_frt(qi_texts: List[str], chapter: str, triggers: List[str]) -> List
 # EXTRACTION TRIGGERS
 # =============================================================================
 def extract_triggers(qi_texts: List[str]) -> List[str]:
-    stopwords = {"le", "la", "les", "de", "des", "du", "un", "une", "et", "à", "a", "en", "pour", "que", "qui", "est", "sont", "on", "dans"}
+    stopwords = {"les", "des", "une", "pour", "que", "qui", "est", "sont", "dans", "par", "sur", "avec"}
     
     bigrams = Counter()
     for qi in qi_texts:
-        toks = tokenize(qi)
-        toks_clean = [t for t in toks if t not in stopwords and len(t) >= 3]
-        for i in range(len(toks_clean) - 1):
-            bigrams[f"{toks_clean[i]} {toks_clean[i+1]}"] += 1
+        toks = [t for t in tokenize(qi) if t not in stopwords and len(t) >= 3]
+        for i in range(len(toks) - 1):
+            bigrams[f"{toks[i]} {toks[i+1]}"] += 1
     
     return [phrase for phrase, _ in bigrams.most_common(4)]
 
@@ -601,30 +542,25 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
     if not qis:
         return []
     
-    clusters: List[Dict] = []
-    qc_idx = 1
-
+    clusters = []
+    
     for qi in qis:
         toks = tokenize(qi.text)
         if not toks:
             continue
-
-        best_i = None
-        best_sim = 0.0
-
+        
+        best_i, best_sim = None, 0.0
         for i, c in enumerate(clusters):
             sim = jaccard_similarity(toks, c["rep_tokens"])
             if sim > best_sim:
-                best_sim = sim
-                best_i = i
-
+                best_sim, best_i = sim, i
+        
         if best_i is not None and best_sim >= sim_threshold:
             clusters[best_i]["qis"].append(qi)
             clusters[best_i]["rep_tokens"] = list(set(clusters[best_i]["rep_tokens"]) | set(toks))
         else:
-            clusters.append({"id": f"QC-{qc_idx:02d}", "rep_tokens": toks, "qis": [qi]})
-            qc_idx += 1
-
+            clusters.append({"id": f"QC-{len(clusters)+1:02d}", "rep_tokens": toks, "qis": [qi]})
+    
     qc_out = []
     total_qi = len(qis)
     
@@ -643,9 +579,13 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
         n_q = len(qi_texts)
         psi_q = compute_psi_q(qi_texts, "Terminale")
         
-        years = [q.year for q in c["qis"] if q.year]
-        max_year = max(years) if years else datetime.now().year
-        t_rec = max(0.5, datetime.now().year - max_year)
+        # CORRECTIF 4: Gestion année None
+        years = [q.year for q in c["qis"] if q.year is not None]
+        if years:
+            max_year = max(years)
+            t_rec = max(0.5, datetime.now().year - max_year)
+        else:
+            t_rec = None  # Année inconnue
         
         score = compute_score_f2(n_q, total_qi, t_rec, psi_q)
         
@@ -658,10 +598,10 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
         qc_out.append({
             "Chapitre": chapter, "QC_ID": c["id"], "FRT_ID": c["id"],
             "Titre": title, "Score": score, "n_q": n_q, "Psi": psi_q,
-            "N_tot": total_qi, "t_rec": round(t_rec, 1),
+            "N_tot": total_qi, "t_rec": round(t_rec, 1) if t_rec else "N/A",
             "Triggers": triggers, "ARI": ari, "FRT_DATA": frt_data, "Evidence": evidence
         })
-
+    
     qc_out.sort(key=lambda x: x["Score"], reverse=True)
     return qc_out
 
@@ -670,14 +610,28 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
 # FONCTION PRINCIPALE D'INGESTION
 # =============================================================================
 def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str = None, progress_callback=None):
-    """Ingestion RÉELLE avec scraping en profondeur."""
+    """
+    Ingestion RÉELLE avec BFS récursif et audit complet.
+    """
     import pandas as pd
     
     cols_src = ["Fichier", "Nature", "Annee", "Telechargement", "Qi_Data"]
     cols_atm = ["FRT_ID", "Qi", "File", "Year", "Chapitre"]
     
-    # Scraping en profondeur
-    pdf_links = scrape_pdf_links_deep(urls, limit=volume)
+    # Déterminer les seeds (ignorer page d'accueil APMEP)
+    seeds = []
+    for url in urls:
+        url_lower = url.lower().strip().rstrip("/")
+        if url_lower in ["https://apmep.fr", "https://www.apmep.fr", "http://apmep.fr"]:
+            seeds.extend(SEED_URLS_FRANCE)  # [P3-CONFIG]
+        else:
+            seeds.append(url)
+    
+    if not seeds:
+        seeds = SEED_URLS_FRANCE
+    
+    # CORRECTIF 5: BFS récursif réel
+    pdf_links, scrape_audit = scrape_pdf_links_bfs(seeds, limit=volume * 2)
     
     if not pdf_links:
         return pd.DataFrame(columns=cols_src), pd.DataFrame(columns=cols_atm)
@@ -689,7 +643,7 @@ def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str 
     for idx, pdf_url in enumerate(pdf_links):
         if processed >= volume:
             break
-            
+        
         if progress_callback:
             progress_callback((idx + 1) / len(pdf_links))
         
@@ -698,48 +652,39 @@ def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str 
             continue
         
         text = extract_pdf_text(pdf_bytes)
-        if not text.strip() or len(text) < 100:
+        if not text.strip() or len(text) < 200:
             continue
         
-        # Vérifier que c'est du contenu mathématique
-        if not is_math_content(text):
+        # Validation globale du PDF
+        if not is_math_content(text[:3000]):
             continue
         
         filename = pdf_url.split("/")[-1].split("?")[0]
-        if not filename.endswith(".pdf"):
-            filename = f"sujet_{idx+1}.pdf"
-        
         nature = detect_nature(filename, text)
         year = detect_year(filename, text)
         
-        qi_texts = extract_qi_from_text(text, chapter_filter)
+        qi_texts, qi_audit = extract_qi_from_text(text, chapter_filter)
         
         if not qi_texts:
             continue
         
         qi_data = []
-        subject_id = f"S{processed+1:04d}"
-        
         for qi_txt in qi_texts:
             chapter = detect_chapter(qi_txt, matiere) if not chapter_filter else chapter_filter
-            
-            atoms.append({
-                "FRT_ID": None, "Qi": qi_txt, "File": filename,
-                "Year": year, "Chapitre": chapter
-            })
+            atoms.append({"FRT_ID": None, "Qi": qi_txt, "File": filename, "Year": year, "Chapitre": chapter})
             qi_data.append({"Qi": qi_txt, "FRT_ID": None})
         
         subjects.append({
-            "Fichier": filename, "Nature": nature, "Annee": year,
+            "Fichier": filename, "Nature": nature, "Annee": year if year else "N/A",
             "Telechargement": pdf_url, "Qi_Data": qi_data
         })
         
         processed += 1
     
-    df_sources = pd.DataFrame(subjects) if subjects else pd.DataFrame(columns=cols_src)
-    df_atoms = pd.DataFrame(atoms) if atoms else pd.DataFrame(columns=cols_atm)
-    
-    return df_sources, df_atoms
+    return (
+        pd.DataFrame(subjects) if subjects else pd.DataFrame(columns=cols_src),
+        pd.DataFrame(atoms) if atoms else pd.DataFrame(columns=cols_atm)
+    )
 
 
 # =============================================================================
@@ -751,15 +696,10 @@ def compute_qc_real(df_atoms) -> 'pd.DataFrame':
     if df_atoms.empty:
         return pd.DataFrame()
     
-    all_qis = []
-    for idx, row in df_atoms.iterrows():
-        all_qis.append(QiItem(
-            subject_id=f"S{idx:04d}",
-            subject_file=row.get("File", "unknown.pdf"),
-            text=row.get("Qi", ""),
-            chapter=row.get("Chapitre", "SUITES NUMÉRIQUES"),
-            year=row.get("Year")
-        ))
+    all_qis = [
+        QiItem(f"S{idx:04d}", row.get("File", ""), row.get("Qi", ""), row.get("Chapitre", ""), row.get("Year"))
+        for idx, row in df_atoms.iterrows()
+    ]
     
     qc_list = cluster_qi_to_qc(all_qis)
     return pd.DataFrame(qc_list) if qc_list else pd.DataFrame()
@@ -776,15 +716,11 @@ def compute_saturation_real(df_atoms) -> 'pd.DataFrame':
     
     files = df_atoms["File"].unique().tolist()
     data_points = []
-    cumulative_atoms = []
+    cumulative = []
     
     for i, f in enumerate(files):
-        file_atoms = df_atoms[df_atoms["File"] == f].to_dict('records')
-        cumulative_atoms.extend(file_atoms)
-        
-        qis = [QiItem(f"S{j:04d}", r.get("File", ""), r.get("Qi", ""), r.get("Chapitre", ""), r.get("Year"))
-               for j, r in enumerate(cumulative_atoms)]
-        
+        cumulative.extend(df_atoms[df_atoms["File"] == f].to_dict('records'))
+        qis = [QiItem(f"S{j}", r.get("File", ""), r.get("Qi", ""), r.get("Chapitre", ""), r.get("Year")) for j, r in enumerate(cumulative)]
         n_qc = len(cluster_qi_to_qc(qis))
         data_points.append({"Sujets (N)": i + 1, "QC Découvertes": n_qc, "Saturation (%)": 0})
     
@@ -807,18 +743,18 @@ def audit_internal_real(subject_qis: List[Dict], qc_df) -> List[Dict]:
     qc_list = qc_df.to_dict('records')
     
     for qi_item in subject_qis:
-        qi_text = qi_item.get("Qi", "")
-        qi_toks = tokenize(qi_text)
-        
+        qi_toks = tokenize(qi_item.get("Qi", ""))
         best_qc, best_sim = None, 0.0
+        
         for qc in qc_list:
             for ev in qc.get("Evidence", []):
                 sim = jaccard_similarity(qi_toks, tokenize(ev.get("Qi", "")))
                 if sim > best_sim:
                     best_sim, best_qc = sim, qc
         
+        qi_short = qi_item.get("Qi", "")[:80] + "..." if len(qi_item.get("Qi", "")) > 80 else qi_item.get("Qi", "")
         results.append({
-            "Qi": qi_text[:80] + "..." if len(qi_text) > 80 else qi_text,
+            "Qi": qi_short,
             "Statut": "✅ MATCH" if best_sim >= 0.25 else "❌ GAP",
             "QC": best_qc["QC_ID"] if best_qc and best_sim >= 0.25 else None
         })
@@ -828,7 +764,7 @@ def audit_internal_real(subject_qis: List[Dict], qc_df) -> List[Dict]:
 
 def audit_external_real(pdf_bytes: bytes, qc_df, chapter_filter: str = None) -> Tuple[float, List[Dict]]:
     text = extract_pdf_text(pdf_bytes)
-    qi_texts = extract_qi_from_text(text, chapter_filter)
+    qi_texts, _ = extract_qi_from_text(text, chapter_filter)
     
     if not qi_texts or qc_df.empty:
         return 0.0, []
