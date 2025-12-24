@@ -105,16 +105,31 @@ def extraire_verbe_principal(texte: str) -> str:
     return "traiter"
 
 def extraire_concept_cle(qi_texts: List[str]) -> str:
+    """
+    Extrait le concept mathématique depuis les Qi.
+    CORRECTIF SMAXIA: Ne jamais retourner "ce type de problème"
+    """
     combined = " ".join(qi_texts).lower()
     for pattern, concept in CONCEPTS_PATTERNS:
         if re.search(pattern, combined):
             return concept
-    return "ce type de problème"
+    # INTERDIT: "ce type de problème" - Retourner un concept neutre mais valide
+    return "cet objet mathématique"
+
+def extraire_concept_depuis_titre(titre_qc: str) -> str:
+    """
+    Extrait le concept depuis un titre QC généré par MUE.
+    Ex: "Comment démontrer qu'une suite est géométrique ?" -> "qu'une suite est géométrique"
+    """
+    match = re.search(r"Comment (?:démontrer|calculer|étudier|déterminer|résoudre|vérifier|en déduire|exprimer) (.+)\?", titre_qc)
+    if match:
+        return match.group(1).strip()
+    return "cet objet mathématique"
 
 def formuler_titre_qc_smaxia(qi_texts: List[str]) -> str:
-    """RÈGLE SMAXIA: QC = 'Comment [VERBE] [CONCEPT] ?'"""
+    """LEGACY - Ne plus utiliser. Utiliser mue_qi_vers_qc() à la place."""
     if not qi_texts:
-        return "Comment traiter ce type de problème ?"
+        return "Comment traiter cet objet mathématique ?"
     
     verbes = Counter()
     for qi in qi_texts:
@@ -316,29 +331,11 @@ class QiItem:
 class SmaxiaSanitizer:
     """
     STEP 0 : Nettoyage et décollage des mots issus de l'extraction PDF.
-    Optimisé pour le français mathématique.
+    APPROCHE HYBRIDE: Dictionnaire précis + Grammaire générique (backup).
     """
     
-    # Dictionnaire de séparation français mathématique
-    FRENCH_MATH_SPLITS = [
-        # Expressions longues (ordre important)
-        ('pourtoutentiernaturel', 'pour tout entier naturel '),
-        ('pourtoutentier', 'pour tout entier '),
-        ('entiernaturel', 'entier naturel '),
-        ('uniquesolution', 'unique solution '),
-        ('équationdifférentielle', 'équation différentielle '),
-        ('probabilitéque', 'probabilité que '),
-        ('probabilitéde', 'probabilité de '),
-        ('connexionsoit', 'connexion soit '),
-        ('laconnexion', 'la connexion '),
-        ('serveurB', 'serveur B '),
-        ('estégaleà', 'est égale à '),
-        ('estégal', 'est égal '),
-        ('soitstable', 'soit stable '),
-        ('stableet', 'stable et '),
-        ('passeparle', 'passe par le '),
-        ('etpasse', 'et passe '),
-        
+    # Dictionnaire des séparations les plus fréquentes (précision maximale)
+    CORE_SPLITS = [
         # Verbes + que/articles
         ('Démontrerque', 'Démontrer que '),
         ('démontrerque', 'démontrer que '),
@@ -346,124 +343,123 @@ class SmaxiaSanitizer:
         ('montrerque', 'montrer que '),
         ('Prouverque', 'Prouver que '),
         ('prouverque', 'prouver que '),
-        ('Vérifierque', 'Vérifier que '),
         ('Calculerla', 'Calculer la '),
         ('calculerla', 'calculer la '),
         ('Calculerle', 'Calculer le '),
         ('Déterminerla', 'Déterminer la '),
         ('déterminerla', 'déterminer la '),
-        ('Étudierle', 'Étudier le '),
         ('Résoudreune', 'Résoudre une '),
         ('résoudreune', 'résoudre une '),
+        ('Étudierle', 'Étudier le '),
+        ('étudierle', 'étudier le '),
+        ('Vérifierque', 'Vérifier que '),
+        ('vérifierque', 'vérifier que '),
         ('Endéduire', 'En déduire '),
         ('endéduire', 'en déduire '),
         
         # Articles + noms
         ('quela', 'que la '),
         ('quele', 'que le '),
-        ('quel\'', "que l'"),
         ('quepour', 'que pour '),
         ('queune', 'que une '),
-        ('quef(', 'que f('),
         ('lalimite', 'la limite '),
+        ('lalimitede', 'la limite de '),
         ('lasuite', 'la suite '),
         ('lafonction', 'la fonction '),
         ('laprobabilité', 'la probabilité '),
-        ('ladérivée', 'la dérivée '),
-        ('lesigne', 'le signe '),
-        ('letableau', 'le tableau '),
+        ('laconnexion', 'la connexion '),
         ('unesuite', 'une suite '),
         ('unefonction', 'une fonction '),
         ('uneunique', 'une unique '),
         ('uneéquation', 'une équation '),
-        ('unentier', 'un entier '),
-        ('l\'aire', "l'aire "),
-        ('l\'équation', "l'équation "),
-        ('l\'intervalle', "l'intervalle "),
         
-        # Prépositions et connexions
-        ('dela', 'de la '),
-        ('dele', 'de le '),
-        ('deraison', 'de raison '),
-        ('dudomaine', 'du domaine '),
-        ('surl\'', "sur l'"),
-        ('surle', 'sur le '),
-        ('sur[', 'sur ['),
-        ('dansl\'', "dans l'"),
-        ('pourtout', 'pour tout '),
-        ('toutentier', 'tout entier '),
-        
-        # Verbes/adjectifs
+        # Suites et géométrie
         ('suiteest', 'suite est '),
         (')est', ') est '),
+        ('uniquesolution', 'unique solution '),
         ('estgéométrique', 'est géométrique '),
+        ('géométriquede', 'géométrique de '),
         ('estarithmétique', 'est arithmétique '),
-        ('estvraie', 'est vraie '),
-        ('estcroissante', 'est croissante '),
-        ('estdécroissante', 'est décroissante '),
+        ('estégale', 'est égale '),
+        ('estégaleà', 'est égale à '),
+        ('égaleà', 'égale à '),
+        
+        # Prépositions
+        ('pourtout', 'pour tout '),
+        ('pourtoutentier', 'pour tout entier '),
+        ('toutentier', 'tout entier '),
+        ('entiernaturel', 'entier naturel '),
+        ('tendvers', 'tend vers '),
+        ('ntend', 'n tend '),
+        ('quandn', 'quand n '),
+        ('deraison', 'de raison '),
+        ('raisonq', 'raison q'),
+        ('àk', 'à k'),
+        ('à0', 'à 0'),
+        ('à1', 'à 1'),
+        ('dela', 'de la '),
+        ('dele', 'de le '),
+        ('dudomaine', 'du domaine '),
+        ('solutionsur', 'solution sur '),
         ('admetune', 'admet une '),
         ('limitede', 'limite de '),
-        ('tendvers', 'tend vers '),
-        ('quandn', 'quand n '),
-        ('ntend', 'n tend '),
-        ('parrécurrence', 'par récurrence '),
-        ('géométriquede', 'géométrique de '),
-        ('raisonq', 'raison q'),
-        ('solutionsur', 'solution sur '),
-        ('airedu', 'aire du '),
+        
+        # Cas spécifiques détectés
+        ('Onadmet', 'On admet '),
+        ('onadmet', 'on admet '),
+        ('parailleurs', 'par ailleurs '),
+        ('parailleursque', 'par ailleurs que '),
+        ('serveurB', 'serveur B'),
+        ('connexionsoit', 'connexion soit '),
+        ('soitstable', 'soit stable '),
+        ('stableet', 'stable et '),
+        ('passeparle', 'passe par le '),
+        ('etpasse', 'et passe '),
+        ('delafonction', 'de la fonction '),
+        ('fonctionf', 'fonction f '),
     ]
     
     def clean_garbage_chars(self, text: str) -> str:
         """Nettoie les résidus d'encodage PDF."""
-        text = text.replace("â€™", "'")
+        text = text.replace("â€™", "'").replace("'", "'")
+        text = text.replace("\n", " ").replace("\r", " ")
         text = text.replace("Â", "")
-        text = text.replace("\n", " ")
-        text = text.replace("\r", " ")
         return re.sub(r'\s+', ' ', text).strip()
-    
+
     def isolate_math_operators(self, text: str) -> str:
         """Sépare les symboles mathématiques du texte."""
-        # Espace autour des opérateurs
-        text = re.sub(r'([=<>+])', r' \1 ', text)
-        # Espace entre lettre et chiffre
-        text = re.sub(r'([a-zA-Zéèêëàâùûîïôç])(\d)', r'\1 \2', text)
-        # Espace entre chiffre et lettre
-        text = re.sub(r'(\d)([a-zA-Zéèêëàâùûîïôç])', r'\1 \2', text)
+        # Espace autour de = < > + SEULEMENT quand collés à des lettres/chiffres
+        text = re.sub(r'([a-zA-Z])([=])(\d)', r'\1 \2 \3', text)
+        text = re.sub(r'(\d)([=])([a-zA-Z])', r'\1 \2 \3', text)
         return text
-    
+
     def repair_glued_french(self, text: str) -> str:
-        """Répare les mots collés avec le dictionnaire français mathématique."""
+        """
+        Approche hybride: Dictionnaire d'abord, puis règles grammaticales ciblées.
+        """
         result = text
         
-        # Appliquer toutes les séparations
-        for glued, separated in self.FRENCH_MATH_SPLITS:
+        # 1. Appliquer le dictionnaire de séparations (précis)
+        for glued, separated in self.CORE_SPLITS:
             result = result.replace(glued, separated)
         
-        # Règle générique : espace avant majuscule au milieu d'un mot
-        result = re.sub(r'([a-zéèêëàâùûîïôç])([A-ZÉÈÊËÀÂÙÛÎÏÔÇ])', r'\1 \2', result)
+        # 2. Règle CamelCase: séparation minuscule/Majuscule
+        result = re.sub(r'([a-zà-ÿ])([A-ZÉÈÊËÀÂÙÛÎÏÔÇ])', r'\1 \2', result)
         
-        # Espace après ponctuation
-        result = re.sub(r'([,;])([a-zA-Zéèêëàâùûîïôç])', r'\1 \2', result)
+        # 3. Ponctuation collée
+        result = re.sub(r'([,;:])([a-zA-Zà-ÿ])', r'\1 \2', result)
+        
+        # 4. Ne PAS utiliser de regex grammaticaux agressifs
+        # Ils cassent des mots comme "tend" -> "t en d"
         
         return result
-    
+
     def sanitize(self, raw_text: str) -> str:
-        """
-        PIPELINE STEP 0 SMAXIA - Nettoyage complet.
-        """
-        # 1. Nettoyage basique (encodage)
+        """PIPELINE STEP 0 SMAXIA - Nettoyage complet."""
         clean_1 = self.clean_garbage_chars(raw_text)
-        
-        # 2. Isolation des opérateurs mathématiques
         clean_2 = self.isolate_math_operators(clean_1)
-        
-        # 3. Décollage des mots français
         clean_3 = self.repair_glued_french(clean_2)
-        
-        # 4. Nettoyage final des espaces
-        final = re.sub(r'\s+', ' ', clean_3).strip()
-        
-        return final
+        return re.sub(r'\s+', ' ', clean_3).strip()
 
 
 # Instance globale du Sanitizer
@@ -472,106 +468,107 @@ _sanitizer = SmaxiaSanitizer()
 def operation_nettoyage(texte: str) -> str:
     """
     OPÉRATION 1 : NETTOYAGE - Remplacement des constantes par leurs formes INVARIANTES
-    
-    PRINCIPE : On ne SUPPRIME pas, on REMPLACE par la forme générique
-    - 0,7 → k
-    - [0;6] → [a;b]
-    - f(t) → f(x)
-    - la suite (u_n) → une suite
-    - α, β → supprimés (variables de résultat)
+    Version robuste avec protection des fonctions mathématiques.
     """
     result = texte
     
-    # === REMPLACEMENTS (pas suppressions) ===
+    # 1. Protection et canonicalisation des suites
+    result = re.sub(r'\b[uvw]\s*_\s*n\b', 'u_n', result)
+    result = re.sub(r'\b[uvw]\s*\(\s*n\s*\)', 'u_n', result)
+    result = re.sub(r'\(\s*[uvw]\s*_?\s*n\s*\)', '(u_n)', result)
+    result = re.sub(r'la\s+suite\s*\(u_n\)', 'une suite', result)
+    result = re.sub(r'la\s+suite\s+u_n', 'une suite', result)
     
-    # Intervalles numériques → [a;b] ou [a;+∞[
+    # 2. Intervalles numériques -> [a;b]
     result = re.sub(r'\[\s*-?\d+[,\.]?\d*\s*[;,]\s*-?\d+[,\.]?\d*\s*\]', '[a;b]', result)
+    result = re.sub(r'[\[\]]\s*-?∞\s*[;,]\s*\+?∞\s*[\[\]]', 'sur ℝ', result)
     result = re.sub(r'\[\s*-?\d+[,\.]?\d*\s*[;,]\s*\+?∞\s*\[', '[a;+∞[', result)
     result = re.sub(r'\]\s*-∞\s*[;,]\s*-?\d+[,\.]?\d*\s*\]', ']-∞;b]', result)
-    result = re.sub(r'\]\s*-∞\s*[;,]\s*\+?∞\s*\[', ']-∞;+∞[', result)
     
-    # f(x)=0,7 → f(x)=k (garder la structure équation)
-    result = re.sub(r'([fgh])\s*\(\s*[txns]\s*\)\s*=\s*-?\d+[,\.]?\d*', r'\1(x)=k ', result)
+    # 3. Valeurs numériques -> k
+    result = re.sub(r'=\s*-?\d+[,\.]?\d*', '= k', result)
+    result = re.sub(r'est\s+égale?\s+à\s+-?\d+[,\.]?\d*', 'est égale à k', result)
+    result = re.sub(r'\bà\s+-?\d+[,\.]?\d*\b', 'à k', result)
     
-    # f(t), g(x), h(n) → f(x) (variable canonique)
-    result = re.sub(r'\b([fgh])\s*\(\s*[txns]\s*\)', r'\1(x)', result)
+    # 4. Nettoyage des noms de fonctions spécifiques
+    fonctions_protegees = ['ln', 'exp', 'sin', 'cos', 'tan', 'lim', 'log']
     
-    # Nombres décimaux isolés (après =) → k
-    result = re.sub(r'=\s*-?\d+[,\.]?\d*', '=k ', result)
+    def replace_func(match):
+        func_name = match.group(1)
+        if func_name.lower() in fonctions_protegees:
+            return match.group(0)
+        return 'f(x)'
     
-    # la suite (u_n), la suite (v_n) → une suite
-    result = re.sub(r'la suite\s*\(\s*[uvw]\s*_?\s*n\s*\)', 'une suite', result)
-    result = re.sub(r'la suite\s+[uvw]\s*_?\s*n', 'une suite', result)
+    result = re.sub(r'\b([a-zA-Z])\s*\(\s*[txns]\s*\)', replace_func, result)
     
-    # (u_n), (v_n) seul → une suite (si précédé de "de")
-    result = re.sub(r'de\s*\(\s*[uvw]\s*_?\s*n\s*\)', 'd\'une suite', result)
-    result = re.sub(r'\(\s*[uvw]\s*_?\s*n\s*\)', '', result)
+    # 5. Raison q=2, r=3 -> raison q
+    result = re.sub(r'raison\s+[qr]\s*=\s*-?\d+[,\.]?\d*', 'raison q', result)
+    result = re.sub(r'\b[qr]\s*=\s*-?\d+[,\.]?\d*', 'q', result)
     
-    # q=2, r=3 → q (raison générique)
-    result = re.sub(r'([qr])\s*=\s*-?\d+[,\.]?\d*', r'\1', result)
-    
-    # Lettres grecques isolées (résultats) → supprimées
+    # 6. Lettres grecques isolées -> supprimées
     result = re.sub(r'\s+[αβγδ]\s+', ' ', result)
     result = re.sub(r'\s+[αβγδ]\s*$', '', result)
-    result = re.sub(r'\s+[αβγδ]\s*sur', ' sur', result)
     
-    # P(n) reste P(n) - c'est une propriété générique
-    
-    # Années → supprimées
+    # 7. Années -> supprimées
     result = re.sub(r'\b20\d{2}\b', '', result)
     
-    # Noms propres → supprimés
-    noms_propres = ['jean', 'marie', 'pierre', 'paul', 'alice', 'bob', 'urne', 'dé']
-    for nom in noms_propres:
-        result = re.sub(rf'\b{nom}\b', '', result, flags=re.IGNORECASE)
-    
-    # Nettoyer espaces multiples
+    # 8. Nettoyage final
     result = re.sub(r'\s+', ' ', result)
-    
-    # Nettoyer ponctuation orpheline
-    result = re.sub(r'\s*[,;]\s*[,;]+', ',', result)
-    result = re.sub(r'^\s*[,;\.]\s*', '', result)
-    result = re.sub(r'\s*\.\s*$', '', result)
+    result = re.sub(r'\s*[,;]\s*$', '', result)
     
     return result.strip()
 
 
 def operation_traduction(texte: str) -> str:
     """
-    OPÉRATION 2 : TRADUCTION - Verbe impératif → Interrogatif méthode
-    - "Démontrer que" → "Comment démontrer que"
-    - "Calculer" → "Comment calculer"
+    OPÉRATION 2 : TRADUCTION - Mapping vers Verbes Canoniques SMAXIA
     """
     result = texte.strip()
+    result_lower = result.lower()
+
+    # Dictionnaire de mappage (Verbe Énoncé -> Verbe Canonique SMAXIA)
+    mapping_verbes = {
+        'montrer': 'démontrer',
+        'prouver': 'démontrer',
+        'établir': 'démontrer',
+        'justifier': 'démontrer',
+        'démontrer': 'démontrer',
+        'en déduire': 'en déduire',
+        'déduire': 'en déduire',
+        'calculer': 'calculer',
+        'déterminer': 'déterminer',
+        'trouver': 'déterminer',
+        'résoudre': 'résoudre',
+        'étudier': 'étudier',
+        'vérifier': 'vérifier',
+        'exprimer': 'exprimer',
+    }
+
+    verbe_trouve = None
+    reste_phrase = result
+
+    # 1. Détection du verbe en début de phrase
+    for v_source, v_target in mapping_verbes.items():
+        if result_lower.startswith(v_source):
+            verbe_trouve = v_target
+            reste_phrase = result[len(v_source):].strip()
+            break
     
-    # Liste des verbes d'action à transformer
-    verbes = [
-        'démontrer', 'montrer', 'prouver', 'établir',
-        'calculer', 'déterminer', 'trouver', 'chercher',
-        'étudier', 'analyser', 'examiner',
-        'résoudre', 'vérifier', 'justifier',
-        'exprimer', 'expliciter', 'préciser',
-        'en déduire', 'déduire', 'conclure'
-    ]
+    # 2. Construction du titre
+    if verbe_trouve:
+        # Nettoyer le "que" résiduel pour éviter "Comment démontrer que que"
+        if reste_phrase.lower().startswith("que ") or reste_phrase.lower().startswith("qu'"):
+            return f"Comment {verbe_trouve} {reste_phrase}"
+        # Ajouter "que" pour les verbes qui l'attendent
+        if verbe_trouve in ['démontrer', 'vérifier']:
+            return f"Comment {verbe_trouve} que {reste_phrase}"
+        return f"Comment {verbe_trouve} {reste_phrase}"
     
-    # Vérifier si commence déjà par "Comment"
-    if result.lower().startswith('comment'):
-        return result
-    
-    # Chercher le verbe au début et préfixer par "Comment"
-    for verbe in verbes:
-        pattern = rf'^{verbe}\b'
-        if re.match(pattern, result, re.IGNORECASE):
-            # Garder la casse du verbe original mais ajouter "Comment"
-            return f"Comment {result[0].lower()}{result[1:]}"
-    
-    # Si aucun verbe trouvé au début, chercher dans la phrase
-    for verbe in verbes:
-        if verbe in result.lower():
-            return f"Comment {result[0].lower()}{result[1:]}"
-    
-    # Fallback : ajouter "Comment" quand même
-    return f"Comment {result[0].lower()}{result[1:]}"
+    # Fallback si pas de verbe connu
+    if not result_lower.startswith("comment"):
+        return f"Comment {result}"
+        
+    return result
 
 
 def operation_standardisation(texte: str) -> str:
@@ -618,8 +615,23 @@ def mue_qi_vers_qc(qi_championne: str) -> str:
     2. TRADUCTION : Verbe → "Comment + verbe"
     3. STANDARDISATION : Grammaire + ponctuation
     """
+    # PRÉTRAITEMENT : Garder uniquement la première phrase/instruction
+    # Couper au premier point suivi d'un espace ou d'une majuscule
+    qi_clean = qi_championne.strip()
+    
+    # Chercher la fin de la première instruction
+    # Patterns de fin : ". " suivi de majuscule, ou ". +" (infini)
+    first_sentence_end = len(qi_clean)
+    for match in re.finditer(r'\.\s+[A-ZÉÈÊËÀÂÙÛÎÏÔÇ+−]', qi_clean):
+        first_sentence_end = match.start() + 1  # Inclure le point
+        break
+    
+    qi_first = qi_clean[:first_sentence_end].strip()
+    if qi_first.endswith('.'):
+        qi_first = qi_first[:-1]
+    
     # Étape 0 : Sanitizer (nettoyage + décollage)
-    etape0 = _sanitizer.sanitize(qi_championne)
+    etape0 = _sanitizer.sanitize(qi_first)
     
     # Étape 1 : Nettoyage (constantes → invariants)
     etape1 = operation_nettoyage(etape0)
@@ -636,8 +648,8 @@ def mue_qi_vers_qc(qi_championne: str) -> str:
         result = result[0].upper() + result[1:]
     
     # Limiter la longueur si trop long
-    if len(result) > 120:
-        result = result[:120].rsplit(' ', 1)[0] + '... ?'
+    if len(result) > 100:
+        result = result[:100].rsplit(' ', 1)[0] + '... ?'
     
     return result
 
@@ -664,6 +676,221 @@ def compute_qi_representativite(qi_text: str, all_qi_texts: List[str]) -> float:
     score = sum(all_tokens.get(t, 0) for t in qi_tokens)
     
     return score
+
+
+# =============================================================================
+# AXIOME SMAXIA QC : Champion + Majorité (ACTION/OBJET/DONNÉE/DEMANDE) - PATCH GPT
+# - Commence par "Comment"
+# - Termine par "?"
+# - Interdit: "ce type", "ce problème", "traiter", formulations vagues
+# =============================================================================
+
+BANNED_QC_TOKENS = {
+    "ce type", "ce genre", "ce problème", "cette question", "traiter", "faire", "comment faire",
+    "comment résoudre ce", "comment démontrer ce", "ci-dessus", "ci-dessous",
+    "cet objet mathématique", "l'objet principal", "le résultat demandé"
+}
+
+# Action canonique (liste fermée)
+ACTION_CANON_GPT = ["déterminer", "calculer", "résoudre", "établir", "justifier", "vérifier", "exprimer", "comparer", "encadrer", "conclure"]
+
+# Détection par chapitre
+CHAPTER_OBJETS = {
+    "SUITES NUMÉRIQUES": [
+        (r"\b(suite|suites)\b", "une suite"),
+        (r"\b(u\s*_?\s*n|u\s*\(\s*n\s*\))\b", "une suite"),
+    ],
+    "FONCTIONS": [
+        (r"\bfonction\b", "une fonction"),
+        (r"\bf\s*\(\s*x\s*\)", "une fonction"),
+    ],
+    "PROBABILITÉS": [
+        (r"\bprobabilit", "une probabilité"),
+        (r"\bévénement\b", "un événement"),
+    ],
+    "GÉOMÉTRIE": [
+        (r"\bvecteur\b", "un vecteur"),
+        (r"\bdroite\b", "une droite"),
+        (r"\bplan\b", "un plan"),
+    ],
+    "INCONNU": [],
+}
+
+CHAPTER_DONNEES = {
+    "SUITES NUMÉRIQUES": [
+        (r"\brécurrence|par récurrence|u\s*\(\s*n\s*\+\s*1\s*\)", "par récurrence"),
+        (r"\bterme général|forme explicite|définie explicitement", "définie explicitement"),
+        (r"\bu\s*0\b|u\s*_?\s*0|condition initiale", "avec une condition initiale"),
+    ],
+    "FONCTIONS": [
+        (r"\bdérivée|f'\b", "à partir de la dérivée"),
+        (r"\blimite\b", "à partir d'une limite"),
+    ],
+    "PROBABILITÉS": [
+        (r"\bloi\b", "à partir d'une loi"),
+        (r"\bvariable\b", "à partir d'une variable aléatoire"),
+    ],
+    "GÉOMÉTRIE": [
+        (r"\bcoordonn", "avec des coordonnées"),
+        (r"\bproduit scalaire\b", "avec un produit scalaire"),
+    ],
+    "INCONNU": [],
+}
+
+CHAPTER_DEMANDES = {
+    "SUITES NUMÉRIQUES": [
+        (r"\bgéométrique\b", "le caractère géométrique"),
+        (r"\barithmétique\b", "le caractère arithmétique"),
+        (r"\blimite|convergen|tend vers", "la limite"),
+        (r"\b(croissant|décroissant|variation|monoton)", "la monotonie"),
+        (r"\bborn|encadr", "un encadrement"),
+        (r"\braison\b", "la raison"),
+        (r"\bterme général|u\s*_?\s*n\b", "le terme général"),
+        (r"\brécurrence\b", "une propriété par récurrence"),
+    ],
+    "FONCTIONS": [
+        (r"\bvariation|croissant|décroissant", "les variations"),
+        (r"\blimite\b", "une limite"),
+        (r"\basymptot", "une asymptote"),
+        (r"\bdérivée|f'\b", "la dérivée"),
+        (r"\bunique solution|solution unique", "l'unicité d'une solution"),
+    ],
+    "PROBABILITÉS": [
+        (r"\bprobabilit", "la probabilité"),
+        (r"\bespérance\b", "l'espérance"),
+        (r"\bvariance\b", "la variance"),
+        (r"\bindépendant", "l'indépendance"),
+    ],
+    "GÉOMÉTRIE": [
+        (r"\bdistance\b", "une distance"),
+        (r"\bangle\b", "un angle"),
+        (r"\bparall", "le parallélisme"),
+        (r"\borthogon", "l'orthogonalité"),
+    ],
+    "INCONNU": [],
+}
+
+# Verbes observés -> canon
+VERBES_CANON_STRICT = {
+    "démontrer": "justifier", "montrer": "justifier", "prouver": "justifier",
+    "calculer": "calculer", "déterminer": "déterminer", "trouver": "déterminer",
+    "résoudre": "résoudre", "exprimer": "exprimer", "encadrer": "encadrer",
+    "vérifier": "vérifier", "comparer": "comparer", "conclure": "conclure",
+    "étudier": "déterminer", "établir": "établir", "justifier": "justifier",
+}
+
+def _pick_first_match(text: str, patterns: List[tuple], default: str) -> str:
+    t = text.lower()
+    for pat, label in patterns:
+        if re.search(pat, t, flags=re.IGNORECASE):
+            return label
+    return default
+
+def extract_action_strict(text: str) -> str:
+    t = text.lower()
+    # Priorité: verbe en tête
+    m = re.match(r"^\s*([a-zàâçéèêëîïôûùüÿñæœ]+)", t)
+    if m:
+        w = m.group(1)
+        if w in VERBES_CANON_STRICT:
+            return VERBES_CANON_STRICT[w]
+    # Sinon: premier verbe trouvé dans le texte
+    for w, canon in VERBES_CANON_STRICT.items():
+        if re.search(rf"\b{re.escape(w)}\b", t):
+            return canon
+    return "déterminer"
+
+def extract_objet(text: str, chapter: str) -> str:
+    return _pick_first_match(text, CHAPTER_OBJETS.get(chapter, []), "")
+
+def extract_donnee_type(text: str, chapter: str) -> str:
+    return _pick_first_match(text, CHAPTER_DONNEES.get(chapter, []), "")
+
+def extract_demande(text: str, chapter: str) -> str:
+    return _pick_first_match(text, CHAPTER_DEMANDES.get(chapter, []), "")
+
+def qc_title_is_valid(title: str) -> bool:
+    """Vérifie qu'un titre QC respecte les règles SMAXIA"""
+    if not title.startswith("Comment"):
+        return False
+    if not title.endswith("?"):
+        return False
+    low = title.lower()
+    if any(tok in low for tok in BANNED_QC_TOKENS):
+        return False
+    if len(title) < 25:
+        return False
+    return True
+
+def build_qc_title_champion_majorite(cluster_qis: List['QiItem'], qi_champion: 'QiItem') -> str:
+    """
+    AXIOME GPT: QC = Qi championne + vote majoritaire du cluster sur ACTION/OBJET/DONNÉE/DEMANDE
+    """
+    texts = [q.text for q in cluster_qis if q.text]
+    chapter = qi_champion.chapter or (cluster_qis[0].chapter if cluster_qis else "INCONNU")
+
+    # Vote majoritaire (avec tie-break champion)
+    actions = Counter(extract_action_strict(t) for t in texts)
+    objets  = Counter(extract_objet(t, chapter) for t in texts)
+    donnees = Counter(extract_donnee_type(t, chapter) for t in texts)
+    demandes= Counter(extract_demande(t, chapter) for t in texts)
+
+    action_ch = extract_action_strict(qi_champion.text)
+    objet_ch  = extract_objet(qi_champion.text, chapter)
+    donnee_ch = extract_donnee_type(qi_champion.text, chapter)
+    demande_ch= extract_demande(qi_champion.text, chapter)
+
+    # Filtrer les valeurs vides
+    actions = Counter({k:v for k,v in actions.items() if k})
+    objets = Counter({k:v for k,v in objets.items() if k})
+    demandes = Counter({k:v for k,v in demandes.items() if k})
+    donnees = Counter({k:v for k,v in donnees.items() if k})
+
+    action = actions.most_common(1)[0][0] if actions else action_ch
+    objet  = objets.most_common(1)[0][0] if objets else objet_ch
+    donnee = donnees.most_common(1)[0][0] if donnees else donnee_ch
+    demande= demandes.most_common(1)[0][0] if demandes else demande_ch
+
+    # Fallback si vides
+    if not action:
+        action = "déterminer"
+    if not objet:
+        objet = objet_ch or ""
+    if not demande:
+        demande = demande_ch or ""
+
+    # Éviter les redondances (ex: "une probabilité pour une probabilité")
+    if objet and demande:
+        objet_clean = objet.lower().replace("une ", "").replace("un ", "").replace("la ", "").replace("le ", "")
+        demande_clean = demande.lower().replace("une ", "").replace("un ", "").replace("la ", "").replace("le ", "")
+        if objet_clean in demande_clean or demande_clean in objet_clean:
+            objet = ""  # On garde demande, on vire objet
+
+    # Construire la QC (forme unique)
+    if objet and demande and donnee:
+        title = f"Comment {action} {demande} pour {objet} {donnee}?"
+    elif objet and demande:
+        title = f"Comment {action} {demande} pour {objet}?"
+    elif demande:
+        title = f"Comment {action} {demande}?"
+    elif objet:
+        title = f"Comment {action} {objet}?"
+    else:
+        # Fallback sur MUE pure
+        title = mue_qi_vers_qc(qi_champion.text)
+        return title
+
+    # Standardisation finale
+    title = re.sub(r"\s+", " ", title).strip()
+    title = title.replace(" ?", "?")
+
+    # Gate: si invalide -> fallback sur mue pure de la championne
+    if not qc_title_is_valid(title):
+        fallback = mue_qi_vers_qc(qi_champion.text)
+        if qc_title_is_valid(fallback):
+            return fallback
+
+    return title
 
 
 def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dict]:
@@ -725,11 +952,16 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
         if not best_qi:
             best_qi = cluster_qis[0]
         
-        # === MUE : Transformer la Championne en QC ===
-        titre = mue_qi_vers_qc(best_qi.text)
+        # === AXIOME GPT: Champion + Majorité ===
+        titre = build_qc_title_champion_majorite(cluster_qis, best_qi)
         
-        # Concept pour ARI/FRT
-        concept = extraire_concept_cle(qi_texts)
+        # === EXTRACTION DU CONCEPT DEPUIS LE TITRE GÉNÉRÉ ===
+        concept = extraire_concept_depuis_titre(titre)
+        # Fallback sur l'ancienne méthode si le titre n'a pas donné de concept
+        if concept == "cet objet mathématique":
+            concept_legacy = extraire_concept_cle(qi_texts)
+            if concept_legacy != "cet objet mathématique":
+                concept = concept_legacy
         
         # Générer ARI/FRT/Déclencheurs
         ari = generer_ari(concept)
@@ -848,11 +1080,16 @@ def extract_qi_from_text(text: str, chapter_filter: str = None) -> List[str]:
     return out[:50]
 
 def detect_chapter(text: str) -> str:
+    """Détecte le chapitre avec seuil minimal - PATCH GPT"""
     toks = set(tokenize(text))
+    best_ch, best_score = "INCONNU", 0
     for chapter, keywords in CHAPTER_KEYWORDS.items():
-        if len(toks & keywords) >= 2:
-            return chapter
-    return "SUITES NUMÉRIQUES"
+        score = len(toks & keywords)
+        if score > best_score:
+            best_score = score
+            best_ch = chapter
+    # Seuil minimal: sinon on n'affecte PAS un chapitre (évite faux classements)
+    return best_ch if best_score >= 2 else "INCONNU"
 
 def detect_year(filename: str, text: str) -> Optional[int]:
     m = re.search(r"20[12]\d", filename) or re.search(r"20[12]\d", text[:1000])
@@ -1003,7 +1240,7 @@ def compute_saturation_real(df_atoms) -> 'pd.DataFrame':
     return pd.DataFrame(data)
 
 
-VERSION = "V4.4-SANITIZER-20241224"
+VERSION = "V5.1-GPT-CHAMPION-MAJORITE-20241224"
 
 
 # =============================================================================
