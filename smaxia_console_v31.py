@@ -169,11 +169,16 @@ with tab_usine:
                     st.markdown(f"#### 📘 {chap} ({len(subset)} QC)")
                     
                     for idx, row in subset.iterrows():
+                        # Affichage des variables F1/F2 complètes
+                        t_rec_display = row.get('t_rec', 'N/A')
+                        alpha_display = row.get('Alpha', 5.0)
+                        sum_tj_display = row.get('Sum_Tj', 0)
+                        
                         st.markdown(f"""
                         <div class="qc-header-box">
                             <span class="qc-id-text">{row['QC_ID']}</span>
                             <span class="qc-title-text">{row['Titre']}</span><br>
-                            <span class="qc-meta-text">Score(q)={row['Score']} | n_q={row['n_q']} | Ψ={row['Psi']} | N_tot={row['N_tot']}</span>
+                            <span class="qc-meta-text">Score(q)={row['Score']} | n_q={row['n_q']} | Ψ={row['Psi']} | N_tot={row['N_tot']} | t_réc={t_rec_display} | α={alpha_display} | Σ_Tj={sum_tj_display}</span>
                         </div>
                         """, unsafe_allow_html=True)
                         
@@ -200,20 +205,45 @@ with tab_usine:
                         
                         with c4:
                             with st.expander(f"📄 Qi ({row['n_q']})"):
-                                evidence = row['Evidence'] if isinstance(row['Evidence'], list) else []
-                                qi_by_file = defaultdict(list)
-                                for item in evidence:
-                                    qi_by_file[item['Fichier']].append(item['Qi'])
-                                html = ""
-                                for f, qlist in qi_by_file.items():
-                                    html += f"<div class='file-block'><div class='file-header'>📁 {f}</div>"
-                                    for q in qlist[:5]:
-                                        q_disp = q[:100] + "..." if len(q) > 100 else q
-                                        html += f"<div class='qi-item'>\"{q_disp}\"</div>"
-                                    if len(qlist) > 5:
-                                        html += f"<div class='qi-item'>... +{len(qlist)-5} autres</div>"
-                                    html += "</div>"
-                                st.markdown(html, unsafe_allow_html=True)
+                                # Utiliser EvidenceBySubject si disponible
+                                evidence_by_subject = row.get('EvidenceBySubject', None)
+                                
+                                if evidence_by_subject and isinstance(evidence_by_subject, list):
+                                    # Affichage structuré par sujet
+                                    html = ""
+                                    for subj in evidence_by_subject:
+                                        fichier = subj.get('Fichier', 'Inconnu')
+                                        qis = subj.get('Qis', [])
+                                        count = subj.get('Count', len(qis))
+                                        
+                                        html += f"<div class='file-block'>"
+                                        html += f"<div class='file-header'>📁 {fichier} ({count} Qi)</div>"
+                                        for q in qis[:5]:
+                                            q_disp = q[:120] + "..." if len(q) > 120 else q
+                                            html += f"<div class='qi-item'>\"{q_disp}\"</div>"
+                                        if len(qis) > 5:
+                                            html += f"<div class='qi-item' style='color:#666;'>... +{len(qis)-5} autres Qi</div>"
+                                        html += "</div>"
+                                    st.markdown(html, unsafe_allow_html=True)
+                                else:
+                                    # Fallback: Evidence plate
+                                    evidence = row.get('Evidence', [])
+                                    if isinstance(evidence, list):
+                                        qi_by_file = defaultdict(list)
+                                        for item in evidence:
+                                            qi_by_file[item.get('Fichier', 'Inconnu')].append(item.get('Qi', ''))
+                                        
+                                        html = ""
+                                        for f, qlist in qi_by_file.items():
+                                            html += f"<div class='file-block'>"
+                                            html += f"<div class='file-header'>📁 {f} ({len(qlist)} Qi)</div>"
+                                            for q in qlist[:5]:
+                                                q_disp = q[:120] + "..." if len(q) > 120 else q
+                                                html += f"<div class='qi-item'>\"{q_disp}\"</div>"
+                                            if len(qlist) > 5:
+                                                html += f"<div class='qi-item' style='color:#666;'>... +{len(qlist)-5} autres</div>"
+                                            html += "</div>"
+                                        st.markdown(html, unsafe_allow_html=True)
                         
                         st.write("")
         
