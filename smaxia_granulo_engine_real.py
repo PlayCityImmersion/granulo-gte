@@ -2,13 +2,7 @@
 # =============================================================================
 # SMAXIA - MOTEUR GRANULO RÉEL (ZÉRO HARDCODE)
 # =============================================================================
-# Ce moteur remplace les données fake de Gemini par une extraction RÉELLE :
-# - Scraping URLs → liens PDF
-# - Téléchargement PDFs réels
-# - Extraction texte (pdfplumber)
-# - Extraction Qi (heuristiques linguistiques)
-# - Clustering Jaccard → QC
-# - Génération ARI/FRT basée sur le contenu
+# Formules F1 (Ψ_q) et F2 (Score(q)) conformes au document A2
 # =============================================================================
 
 from __future__ import annotations
@@ -18,7 +12,7 @@ import math
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from collections import Counter, defaultdict
 from datetime import datetime
 
@@ -37,7 +31,7 @@ MIN_QI_CHARS = 20
 
 
 # =============================================================================
-# MOTS-CLÉS PAR CHAPITRE (dérivés du programme, pas hardcodés dans les QC)
+# MOTS-CLÉS PAR CHAPITRE (Terminale France)
 # =============================================================================
 CHAPTER_KEYWORDS = {
     "SUITES NUMÉRIQUES": {
@@ -75,25 +69,68 @@ QUESTION_VERBS = {
     "conjecturer", "interpréter", "expliciter", "préciser"
 }
 
+# =============================================================================
+# TRANSFORMATIONS COGNITIVES ARI (pour F1 - Ψ_q)
+# =============================================================================
+COGNITIVE_TRANSFORMS = {
+    # Transformations de base (poids faible)
+    "identifier": 0.1,
+    "lire": 0.1,
+    "recopier": 0.05,
+    
+    # Transformations intermédiaires
+    "calculer": 0.3,
+    "simplifier": 0.25,
+    "factoriser": 0.35,
+    "développer": 0.3,
+    "substituer": 0.25,
+    
+    # Transformations avancées
+    "dériver": 0.4,
+    "intégrer": 0.45,
+    "résoudre": 0.4,
+    "démontrer": 0.5,
+    "raisonner": 0.45,
+    
+    # Transformations complexes
+    "récurrence": 0.6,
+    "limite": 0.5,
+    "convergence": 0.55,
+    "théorème": 0.5,
+    "changement_variable": 0.55,
+    
+    # Transformations expertes
+    "optimisation": 0.7,
+    "modélisation": 0.65,
+    "interprétation": 0.4
+}
+
+# Constante epsilon (évite Ψ=0)
+EPSILON_PSI = 0.1
+
+# Coefficient de difficulté par niveau (δ_c)
+DELTA_NIVEAU = {
+    "Terminale": 1.0,
+    "Première": 0.8,
+    "Seconde": 0.6
+}
+
 
 # =============================================================================
 # OUTILS TEXTE
 # =============================================================================
 def normalize_text(text: str) -> str:
-    """Normalise un texte (minuscules, espaces unifiés)."""
     t = text.lower()
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
 
 def tokenize(text: str) -> List[str]:
-    """Tokenise un texte en mots."""
     t = normalize_text(text)
     return re.findall(r"[a-zàâçéèêëîïôûùüÿñæœ0-9]+", t)
 
 
 def jaccard_similarity(a: List[str], b: List[str]) -> float:
-    """Calcule la similarité de Jaccard entre deux listes de tokens."""
     sa, sb = set(a), set(b)
     if not sa and not sb:
         return 0.0
@@ -106,10 +143,8 @@ def jaccard_similarity(a: List[str], b: List[str]) -> float:
 # DÉTECTION CHAPITRE / NATURE / ANNÉE
 # =============================================================================
 def detect_chapter(text: str, matiere: str = "MATHS") -> str:
-    """Détecte le chapitre le plus probable."""
     toks = set(tokenize(text))
     
-    # Filtrer les chapitres selon la matière
     if matiere == "MATHS":
         chapters = ["SUITES NUMÉRIQUES", "FONCTIONS", "PROBABILITÉS", "GÉOMÉTRIE"]
     else:
@@ -129,7 +164,6 @@ def detect_chapter(text: str, matiere: str = "MATHS") -> str:
 
 
 def detect_nature(filename: str, text: str) -> str:
-    """Détecte la nature du sujet."""
     combined = (filename + " " + text[:2000]).lower()
     
     if any(k in combined for k in ["bac", "baccalauréat", "baccalaureat", "métropole", "metropole"]):
@@ -145,13 +179,10 @@ def detect_nature(filename: str, text: str) -> str:
 
 
 def detect_year(filename: str, text: str) -> Optional[int]:
-    """Détecte l'année du sujet."""
-    # Chercher dans le nom de fichier d'abord
     match = re.search(r"20[12]\d", filename)
     if match:
         return int(match.group())
     
-    # Chercher dans le texte (début)
     match = re.search(r"20[12]\d", text[:1500])
     if match:
         return int(match.group())
@@ -163,7 +194,6 @@ def detect_year(filename: str, text: str) -> Optional[int]:
 # SCRAPING PDF
 # =============================================================================
 def scrape_pdf_links(url: str) -> List[str]:
-    """Extrait tous les liens PDF d'une page web."""
     try:
         r = requests.get(url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT)
         r.raise_for_status()
@@ -179,7 +209,6 @@ def scrape_pdf_links(url: str) -> List[str]:
         if not href or ".pdf" not in href.lower():
             continue
 
-        # Absolutisation URL
         if href.startswith(("http://", "https://")):
             links.append(href)
         else:
@@ -191,20 +220,17 @@ def scrape_pdf_links(url: str) -> List[str]:
             else:
                 links.append(base + "/" + href)
 
-    # Dédoublonnage
     seen = set()
     return [x for x in links if not (x in seen or seen.add(x))]
 
 
 def collect_pdf_links(urls: List[str], limit: int) -> List[str]:
-    """Collecte les liens PDF depuis plusieurs URLs."""
     all_links = []
     for u in urls:
         all_links.extend(scrape_pdf_links(u))
-        if len(all_links) >= limit * 2:  # Marge pour les échecs
+        if len(all_links) >= limit * 2:
             break
     
-    # Dédoublonnage et limite
     seen = set()
     uniq = []
     for x in all_links:
@@ -220,7 +246,6 @@ def collect_pdf_links(urls: List[str], limit: int) -> List[str]:
 # TÉLÉCHARGEMENT PDF
 # =============================================================================
 def download_pdf(url: str) -> Optional[bytes]:
-    """Télécharge un PDF."""
     try:
         r = requests.get(url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT, stream=True)
         r.raise_for_status()
@@ -242,7 +267,6 @@ def download_pdf(url: str) -> Optional[bytes]:
 # EXTRACTION TEXTE PDF
 # =============================================================================
 def extract_pdf_text(pdf_bytes: bytes, max_pages: int = 30) -> str:
-    """Extrait le texte d'un PDF."""
     text_parts = []
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -258,10 +282,9 @@ def extract_pdf_text(pdf_bytes: bytes, max_pages: int = 30) -> str:
 
 
 # =============================================================================
-# EXTRACTION Qi (QUESTIONS INDIVIDUELLES)
+# EXTRACTION Qi
 # =============================================================================
 def extract_qi_from_text(text: str, chapter_filter: str = None) -> List[str]:
-    """Extrait les questions individuelles d'un texte PDF."""
     raw = text.replace("\r", "\n")
     raw = re.sub(r"\n{2,}", "\n\n", raw)
 
@@ -273,28 +296,24 @@ def extract_qi_from_text(text: str, chapter_filter: str = None) -> List[str]:
         if len(b2) < MIN_QI_CHARS:
             continue
 
-        # Signal 1: Verbes de question
         if any(re.search(rf"\b{v}\b", b2, re.IGNORECASE) for v in QUESTION_VERBS):
             candidates.append(b2)
             continue
 
-        # Signal 2: Mots-clés du chapitre
         if chapter_filter:
             keywords = CHAPTER_KEYWORDS.get(chapter_filter, set())
             toks = set(tokenize(b2))
             if len(toks & keywords) >= 2:
                 candidates.append(b2)
 
-    # Nettoyage et troncature
     qi_list = []
     for c in candidates:
         c = re.sub(r"\s+", " ", c).strip()
         if len(c) > 400:
-            c = c[:400].rsplit(" ", 1)[0] + "…"
+            c = c[:400].rsplit(" ", 1)[0] + "..."
         if len(c) >= MIN_QI_CHARS:
             qi_list.append(c)
 
-    # Dédoublonnage
     seen = set()
     out = []
     for x in qi_list:
@@ -306,164 +325,202 @@ def extract_qi_from_text(text: str, chapter_filter: str = None) -> List[str]:
 
 
 # =============================================================================
-# GÉNÉRATION ARI (Algorithme de Résolution Invariant)
+# F1 : Ψ_q — POIDS PRÉDICTIF PURIFIÉ (Document A2)
+# =============================================================================
+def compute_psi_q(qi_texts: List[str], niveau: str = "Terminale") -> float:
+    """
+    F1 : Ψ_q = (Σ T_j + ε) × δ_c / max(Ψ_p)
+    
+    Calcule le poids prédictif purifié basé sur la densité cognitive (ARI).
+    """
+    if not qi_texts:
+        return EPSILON_PSI
+    
+    # Calculer la somme des transformations cognitives
+    combined_text = " ".join(qi_texts).lower()
+    
+    sum_tj = 0.0
+    transforms_found = []
+    
+    for transform, weight in COGNITIVE_TRANSFORMS.items():
+        if transform in combined_text:
+            sum_tj += weight
+            transforms_found.append(transform)
+    
+    # Ajouter epsilon pour éviter Ψ=0
+    psi_brut = sum_tj + EPSILON_PSI
+    
+    # Appliquer le coefficient de difficulté du niveau
+    delta_c = DELTA_NIVEAU.get(niveau, 1.0)
+    psi_ajuste = psi_brut * delta_c
+    
+    # Normalisation (max local assumé à 3.0 pour Terminale)
+    max_psi_local = 3.0
+    psi_normalise = min(1.0, psi_ajuste / max_psi_local)
+    
+    return round(psi_normalise, 2)
+
+
+# =============================================================================
+# F2 : Score(q) — SÉLECTION OPTIMALE (Document A2)
+# =============================================================================
+def compute_score_f2(n_q: int, n_total: int, t_rec: float, psi_q: float, 
+                     redundancy_penalty: float = 1.0, alpha: float = 5.0) -> float:
+    """
+    F2 : Score(q) = (n_q / N_total) × (1 + α / t_rec) × Ψ_q × Π(1 - σ(q,p))
+    
+    Calcule le score de sélection pour le classement Granulo.
+    
+    Args:
+        n_q: occurrences historiques de la structure
+        n_total: total d'items observés dans le chapitre
+        t_rec: temps (années) depuis la dernière occurrence
+        psi_q: poids cognitif (F1)
+        redundancy_penalty: pénalité de redondance Π(1-σ)
+        alpha: coefficient de récence (défaut 5.0 selon A2)
+    """
+    if n_total == 0:
+        return 0.0
+    
+    # Ratio de fréquence
+    freq_ratio = n_q / n_total
+    
+    # Facteur de récence (plus récent = score plus élevé)
+    t_rec_safe = max(0.5, t_rec)  # Éviter division par 0
+    recency_factor = 1 + (alpha / t_rec_safe)
+    
+    # Score F2
+    score = freq_ratio * recency_factor * psi_q * redundancy_penalty * 100
+    
+    return round(score, 1)
+
+
+# =============================================================================
+# GÉNÉRATION ARI
 # =============================================================================
 def generate_ari(qi_texts: List[str], chapter: str) -> List[str]:
-    """Génère un ARI basé sur l'analyse des Qi."""
     combined = " ".join(qi_texts).lower()
     
-    # Détection du type de problème basé sur le contenu réel
     if chapter == "SUITES NUMÉRIQUES":
         if any(k in combined for k in ["géométrique", "geometrique", "quotient"]):
             return [
-                "1. Exprimer u(n+1) en fonction de n",
-                "2. Calculer le quotient u(n+1)/u(n)",
-                "3. Simplifier l'expression",
-                "4. Identifier la raison q constante"
+                "1. Exprimer u(n+1)",
+                "2. Quotient u(n+1)/u(n)",
+                "3. Simplifier",
+                "4. Constante"
             ]
         if any(k in combined for k in ["arithmétique", "arithmetique", "différence"]):
             return [
-                "1. Exprimer u(n+1) en fonction de n",
-                "2. Calculer u(n+1) - u(n)",
-                "3. Simplifier l'expression",
-                "4. Identifier la raison r constante"
+                "1. Exprimer u(n+1)",
+                "2. Différence u(n+1)-u(n)",
+                "3. Simplifier",
+                "4. Constante r"
             ]
         if any(k in combined for k in ["limite", "convergence", "tend vers"]):
             return [
-                "1. Identifier le terme dominant",
-                "2. Factoriser par ce terme",
-                "3. Appliquer les limites usuelles",
-                "4. Conclure par opérations sur limites"
+                "1. Terme dominant",
+                "2. Factorisation",
+                "3. Limites usuelles",
+                "4. Conclure"
             ]
-        if any(k in combined for k in ["récurrence", "recurrence", "pour tout n"]):
+        if any(k in combined for k in ["récurrence", "recurrence"]):
             return [
-                "1. Initialisation : vérifier P(n₀)",
-                "2. Hérédité : supposer P(n) vraie",
+                "1. Initialisation P(n0)",
+                "2. Hérédité: supposer P(n)",
                 "3. Démontrer P(n+1)",
-                "4. Conclure par récurrence"
+                "4. Conclure"
             ]
     
     elif chapter == "FONCTIONS":
         if any(k in combined for k in ["tvi", "valeurs intermédiaires", "unique solution"]):
             return [
-                "1. Vérifier la continuité sur I",
-                "2. Vérifier la stricte monotonie",
-                "3. Calculer f(a) et f(b)",
-                "4. Appliquer le corollaire du TVI"
+                "1. Continuité",
+                "2. Monotonie",
+                "3. Bornes",
+                "4. TVI"
             ]
-        if any(k in combined for k in ["dérivée", "derivee", "dériver"]):
+        if any(k in combined for k in ["dérivée", "derivee"]):
             return [
-                "1. Identifier la fonction f",
-                "2. Appliquer les règles de dérivation",
-                "3. Simplifier f'(x)",
-                "4. Étudier le signe de f'(x)"
+                "1. Identifier f",
+                "2. Dériver",
+                "3. Simplifier f'",
+                "4. Signe de f'"
             ]
-    
-    # ARI générique basé sur les verbes détectés
-    verbs_found = [v for v in QUESTION_VERBS if v in combined]
-    if verbs_found:
-        return [
-            f"1. Identifier les données du problème",
-            f"2. Appliquer la méthode : {verbs_found[0]}",
-            "3. Effectuer les calculs",
-            "4. Conclure et vérifier"
-        ]
     
     return [
-        "1. Analyser l'énoncé",
-        "2. Identifier la méthode",
-        "3. Appliquer et calculer",
+        "1. Analyser",
+        "2. Méthode",
+        "3. Calculer",
         "4. Conclure"
     ]
 
 
 # =============================================================================
-# GÉNÉRATION FRT (Fiche de Réponse Type)
+# GÉNÉRATION FRT
 # =============================================================================
 def generate_frt(qi_texts: List[str], chapter: str, triggers: List[str]) -> List[Dict]:
-    """Génère une FRT basée sur l'analyse des Qi."""
     combined = " ".join(qi_texts).lower()
-    trigger_str = " ".join(triggers)
     
-    # Templates FRT basés sur le contenu détecté
     if chapter == "SUITES NUMÉRIQUES":
         if any(k in combined for k in ["géométrique", "geometrique"]):
             return [
-                {"type": "usage", "title": "🔔 1. Quand utiliser", 
-                 "text": "L'énoncé demande de montrer qu'une suite est géométrique ou de déterminer sa nature."},
-                {"type": "method", "title": "✅ 2. Méthode Rédigée", 
-                 "text": "1. On exprime u(n+1) à partir de la définition.\n2. On calcule u(n+1)/u(n).\n3. On simplifie jusqu'à obtenir une constante q.\n4. On conclut que (un) est géométrique de raison q."},
-                {"type": "trap", "title": "⚠️ 3. Pièges", 
-                 "text": "• Oublier de vérifier que u(n) ≠ 0.\n• Confondre avec suite arithmétique (différence vs quotient)."},
-                {"type": "conc", "title": "✍️ 4. Conclusion", 
-                 "text": "Le quotient u(n+1)/u(n) étant constant égal à q, la suite (un) est géométrique de raison q."}
+                {"type": "usage", "title": "🔔 1. QUAND UTILISER", 
+                 "text": "L'énoncé demande explicitement la nature de la suite ou de prouver qu'elle est géométrique."},
+                {"type": "method", "title": "✅ 2. MÉTHODE RÉDIGÉE", 
+                 "text": "1. Pour tout n, on exprime u(n+1).\n2. On calcule u(n+1)/u(n).\n3. On simplifie.\n4. On trouve une constante q."},
+                {"type": "trap", "title": "⚠️ 3. PIÈGES", 
+                 "text": "Oublier de vérifier u(n) non nul."},
+                {"type": "conc", "title": "✍️ 4. CONCLUSION", 
+                 "text": "Le rapport est constant, donc la suite est géométrique."}
             ]
         
         if any(k in combined for k in ["limite", "convergence"]):
             return [
-                {"type": "usage", "title": "🔔 1. Quand utiliser", 
-                 "text": "Calculer une limite avec forme indéterminée (∞/∞, ∞-∞, etc.)."},
-                {"type": "method", "title": "✅ 2. Méthode Rédigée", 
-                 "text": "1. Identifier le terme de plus haut degré.\n2. Factoriser numérateur et dénominateur.\n3. Simplifier.\n4. Appliquer lim(1/n) = 0."},
-                {"type": "trap", "title": "⚠️ 3. Pièges", 
-                 "text": "• Appliquer les règles sans lever l'indétermination.\n• Erreur de signe lors de la factorisation."},
-                {"type": "conc", "title": "✍️ 4. Conclusion", 
-                 "text": "Par opérations sur les limites, la suite converge vers L."}
-            ]
-        
-        if any(k in combined for k in ["récurrence", "recurrence"]):
-            return [
-                {"type": "usage", "title": "🔔 1. Quand utiliser", 
-                 "text": "Démontrer une propriété vraie pour tout entier n ≥ n₀."},
-                {"type": "method", "title": "✅ 2. Méthode Rédigée", 
-                 "text": "1. Initialisation : vérifier P(n₀).\n2. Hérédité : supposer P(n) vraie.\n3. Montrer que P(n+1) est vraie.\n4. Conclure par récurrence."},
-                {"type": "trap", "title": "⚠️ 3. Pièges", 
-                 "text": "• Oublier l'initialisation.\n• Utiliser P(n+1) au lieu de P(n) dans l'hérédité."},
-                {"type": "conc", "title": "✍️ 4. Conclusion", 
-                 "text": "Par récurrence, la propriété P(n) est vraie pour tout n ≥ n₀."}
+                {"type": "usage", "title": "🔔 1. QUAND UTILISER", 
+                 "text": "Forme indéterminée infini/infini."},
+                {"type": "method", "title": "✅ 2. MÉTHODE RÉDIGÉE", 
+                 "text": "1. Identifier le terme dominant.\n2. Factoriser.\n3. Limites usuelles."},
+                {"type": "trap", "title": "⚠️ 3. PIÈGES", 
+                 "text": "Règle des signes sans factorisation."},
+                {"type": "conc", "title": "✍️ 4. CONCLUSION", 
+                 "text": "La suite converge vers..."}
             ]
     
     elif chapter == "FONCTIONS":
         if any(k in combined for k in ["tvi", "unique", "solution"]):
             return [
-                {"type": "usage", "title": "🔔 1. Quand utiliser", 
-                 "text": "Prouver l'existence et l'unicité d'une solution sans la calculer."},
-                {"type": "method", "title": "✅ 2. Méthode Rédigée", 
-                 "text": "1. f est continue sur [a,b].\n2. f est strictement monotone.\n3. Calculer f(a) et f(b).\n4. k est compris entre f(a) et f(b)."},
-                {"type": "trap", "title": "⚠️ 3. Pièges", 
-                 "text": "• Oublier 'stricte' monotonie (perd l'unicité).\n• Oublier de vérifier la continuité."},
-                {"type": "conc", "title": "✍️ 4. Conclusion", 
-                 "text": "D'après le corollaire du TVI, l'équation admet une unique solution α dans I."}
+                {"type": "usage", "title": "🔔 1. QUAND UTILISER", 
+                 "text": "Prouver existence et unicité."},
+                {"type": "method", "title": "✅ 2. MÉTHODE RÉDIGÉE", 
+                 "text": "1. f continue et strictement monotone.\n2. Images aux bornes.\n3. k compris entre.\n4. Corollaire TVI."},
+                {"type": "trap", "title": "⚠️ 3. PIÈGES", 
+                 "text": "Oublier la stricte monotonie."},
+                {"type": "conc", "title": "✍️ 4. CONCLUSION", 
+                 "text": "Unique solution alpha."}
             ]
     
-    # FRT générique
     return [
-        {"type": "usage", "title": "🔔 1. Quand utiliser", 
-         "text": f"Questions contenant : {', '.join(triggers[:3]) if triggers else 'termes du chapitre'}"},
-        {"type": "method", "title": "✅ 2. Méthode Rédigée", 
-         "text": "1. Identifier les hypothèses.\n2. Appliquer la méthode appropriée.\n3. Effectuer les calculs.\n4. Conclure."},
-        {"type": "trap", "title": "⚠️ 3. Pièges", 
-         "text": "• Vérifier les conditions d'application.\n• Attention aux cas particuliers."},
-        {"type": "conc", "title": "✍️ 4. Conclusion", 
-         "text": "Répondre précisément à la question posée."}
+        {"type": "usage", "title": "🔔 1. QUAND UTILISER", 
+         "text": f"Questions avec: {', '.join(triggers[:3]) if triggers else 'termes du chapitre'}"},
+        {"type": "method", "title": "✅ 2. MÉTHODE RÉDIGÉE", 
+         "text": "1. Identifier.\n2. Appliquer.\n3. Calculer.\n4. Conclure."},
+        {"type": "trap", "title": "⚠️ 3. PIÈGES", 
+         "text": "Vérifier les conditions."},
+        {"type": "conc", "title": "✍️ 4. CONCLUSION", 
+         "text": "Répondre à la question."}
     ]
 
 
 # =============================================================================
-# EXTRACTION DÉCLENCHEURS (TRIGGERS)
+# EXTRACTION TRIGGERS
 # =============================================================================
 def extract_triggers(qi_texts: List[str]) -> List[str]:
-    """Extrait les phrases déclencheuses des Qi."""
-    # Stopwords français
     stopwords = {
         "le", "la", "les", "de", "des", "du", "un", "une", "et", "à", "a", "en",
-        "pour", "que", "qui", "est", "sont", "on", "dans", "par", "sur", "avec",
-        "ce", "cette", "ces", "il", "elle", "nous", "vous", "ils", "elles"
+        "pour", "que", "qui", "est", "sont", "on", "dans", "par", "sur", "avec"
     }
     
-    # Compter les n-grammes significatifs
     bigrams = Counter()
-    trigrams = Counter()
     
     for qi in qi_texts:
         toks = tokenize(qi)
@@ -471,41 +528,17 @@ def extract_triggers(qi_texts: List[str]) -> List[str]:
         
         for i in range(len(toks_clean) - 1):
             bigrams[f"{toks_clean[i]} {toks_clean[i+1]}"] += 1
-        
-        for i in range(len(toks_clean) - 2):
-            trigrams[f"{toks_clean[i]} {toks_clean[i+1]} {toks_clean[i+2]}"] += 1
     
-    # Prendre les plus fréquents
     triggers = []
-    
-    # Trigrams d'abord (plus spécifiques)
-    for phrase, count in trigrams.most_common(3):
-        if count >= 2:
+    for phrase, count in bigrams.most_common(6):
+        if count >= 1:
             triggers.append(phrase)
     
-    # Bigrams ensuite
-    for phrase, count in bigrams.most_common(5):
-        if count >= 2 and phrase not in triggers:
-            triggers.append(phrase)
-    
-    # Compléter avec des mots-clés si pas assez
-    if len(triggers) < 4:
-        all_tokens = []
-        for qi in qi_texts:
-            all_tokens.extend(tokenize(qi))
-        
-        freq = Counter(t for t in all_tokens if t not in stopwords and len(t) >= 4)
-        for word, _ in freq.most_common(6):
-            if word not in " ".join(triggers):
-                triggers.append(word)
-            if len(triggers) >= 6:
-                break
-    
-    return triggers[:6]
+    return triggers[:4]
 
 
 # =============================================================================
-# DATACLASSES
+# DATACLASS
 # =============================================================================
 @dataclass
 class QiItem:
@@ -516,20 +549,10 @@ class QiItem:
     year: Optional[int] = None
 
 
-@dataclass
-class Subject:
-    filename: str
-    nature: str
-    year: Optional[int]
-    url: str
-    qi_list: List[Dict] = field(default_factory=list)
-
-
 # =============================================================================
-# CLUSTERING Qi → QC
+# CLUSTERING Qi → QC avec F1 et F2
 # =============================================================================
 def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dict]:
-    """Regroupe les Qi similaires en QC par clustering Jaccard."""
     if not qis:
         return []
     
@@ -552,7 +575,6 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
 
         if best_i is not None and best_sim >= sim_threshold:
             clusters[best_i]["qis"].append(qi)
-            # Étendre les tokens représentatifs
             clusters[best_i]["rep_tokens"] = list(set(clusters[best_i]["rep_tokens"]) | set(toks))
         else:
             clusters.append({
@@ -562,7 +584,6 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
             })
             qc_idx += 1
 
-    # Construire les objets QC
     qc_out = []
     total_qi = len(qis)
     
@@ -570,31 +591,33 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
         qi_texts = [q.text for q in c["qis"]]
         chapter = c["qis"][0].chapter if c["qis"] else "SUITES NUMÉRIQUES"
         
-        # Titre = Qi représentatif (le plus court qui soit informatif)
+        # Titre
         title = min(qi_texts, key=lambda x: len(x) if len(x) > 30 else 1000)
         if len(title) > 80:
-            title = title[:80].rsplit(" ", 1)[0] + "…"
+            title = title[:80].rsplit(" ", 1)[0] + "..."
         
-        # Déclencheurs
+        # Triggers
         triggers = extract_triggers(qi_texts)
         
-        # ARI et FRT générés
+        # ARI et FRT
         ari = generate_ari(qi_texts, chapter)
         frt_data = generate_frt(qi_texts, chapter, triggers)
         
-        # Métriques
+        # Métriques avec F1 et F2
         n_q = len(qi_texts)
-        psi = round(min(1.0, n_q / 20.0), 2)
         
-        # Année la plus récente
+        # F1: Ψ_q (Poids Prédictif Purifié)
+        psi_q = compute_psi_q(qi_texts, "Terminale")
+        
+        # Année la plus récente pour t_rec
         years = [q.year for q in c["qis"] if q.year]
         max_year = max(years) if years else datetime.now().year
         t_rec = max(0.5, datetime.now().year - max_year)
         
-        # Score F2
-        score = (n_q / max(total_qi, 1)) * (1 + 5.0/t_rec) * psi * 100
+        # F2: Score(q)
+        score = compute_score_f2(n_q, total_qi, t_rec, psi_q)
         
-        # Evidence : Qi groupées par fichier
+        # Evidence
         qi_by_file = defaultdict(list)
         for q in c["qis"]:
             qi_by_file[q.subject_file].append(q.text)
@@ -607,11 +630,11 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
         qc_out.append({
             "Chapitre": chapter,
             "QC_ID": c["id"],
-            "FRT_ID": c["id"],  # Compatibilité avec l'UI
+            "FRT_ID": c["id"],
             "Titre": title,
-            "Score": round(score, 1),
+            "Score": score,
             "n_q": n_q,
-            "Psi": psi,
+            "Psi": psi_q,
             "N_tot": total_qi,
             "t_rec": round(t_rec, 1),
             "Triggers": triggers,
@@ -620,48 +643,46 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
             "Evidence": evidence
         })
 
-    # Trier par score décroissant
     qc_out.sort(key=lambda x: x["Score"], reverse=True)
     return qc_out
 
 
 # =============================================================================
-# FONCTION PRINCIPALE D'INGESTION
+# FONCTION PRINCIPALE D'INGESTION (RETOURNE 2 VALEURS, PAS 3)
 # =============================================================================
 def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str = None, progress_callback=None):
     """
     Ingestion RÉELLE : scrape → télécharge → extrait → cluster.
     
     Returns:
-        Tuple[pd.DataFrame, pd.DataFrame]: (sujets, atoms)
+        Tuple[pd.DataFrame, pd.DataFrame]: (df_sources, df_atoms)
     """
     import pandas as pd
     
-    # 1. Collecter les liens PDF
     pdf_links = collect_pdf_links(urls, limit=volume)
     
+    cols_src = ["Fichier", "Nature", "Annee", "Telechargement", "Qi_Data"]
+    cols_atm = ["FRT_ID", "Qi", "File", "Year", "Chapitre"]
+    
     if not pdf_links:
-        return pd.DataFrame(columns=["Fichier", "Nature", "Annee", "Telechargement", "Qi_Data"]), \
-               pd.DataFrame(columns=["FRT_ID", "Qi", "File", "Year", "Chapitre"])
+        return pd.DataFrame(columns=cols_src), pd.DataFrame(columns=cols_atm)
     
     subjects = []
+    atoms = []
     all_qis: List[QiItem] = []
     
     for idx, pdf_url in enumerate(pdf_links):
         if progress_callback:
             progress_callback((idx + 1) / len(pdf_links))
         
-        # Télécharger
         pdf_bytes = download_pdf(pdf_url)
         if not pdf_bytes:
             continue
         
-        # Extraire texte
         text = extract_pdf_text(pdf_bytes)
         if not text.strip():
             continue
         
-        # Métadonnées
         filename = pdf_url.split("/")[-1].split("?")[0]
         if not filename.endswith(".pdf"):
             filename = f"sujet_{idx+1}.pdf"
@@ -669,10 +690,8 @@ def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str 
         nature = detect_nature(filename, text)
         year = detect_year(filename, text)
         
-        # Extraire Qi
         qi_texts = extract_qi_from_text(text, chapter_filter)
         
-        # Filtrer par chapitre si nécessaire
         if chapter_filter:
             keywords = CHAPTER_KEYWORDS.get(chapter_filter, set())
             qi_texts = [q for q in qi_texts if len(set(tokenize(q)) & keywords) >= 1]
@@ -680,7 +699,6 @@ def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str 
         if not qi_texts:
             continue
         
-        # Construire les données
         qi_data = []
         subject_id = f"S{idx+1:04d}"
         
@@ -695,7 +713,15 @@ def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str 
                 year=year
             ))
             
-            qi_data.append({"Qi": qi_txt, "FRT_ID": None})  # FRT_ID sera rempli après clustering
+            atoms.append({
+                "FRT_ID": None,
+                "Qi": qi_txt,
+                "File": filename,
+                "Year": year,
+                "Chapitre": chapter
+            })
+            
+            qi_data.append({"Qi": qi_txt, "FRT_ID": None})
         
         subjects.append({
             "Fichier": filename,
@@ -705,29 +731,31 @@ def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str 
             "Qi_Data": qi_data
         })
     
-    # Créer les DataFrames
-    df_sources = pd.DataFrame(subjects)
+    df_sources = pd.DataFrame(subjects) if subjects else pd.DataFrame(columns=cols_src)
+    df_atoms = pd.DataFrame(atoms) if atoms else pd.DataFrame(columns=cols_atm)
     
-    atoms_data = []
-    for qi in all_qis:
-        atoms_data.append({
-            "FRT_ID": None,  # Sera mis à jour après clustering
-            "Qi": qi.text,
-            "File": qi.subject_file,
-            "Year": qi.year,
-            "Chapitre": qi.chapter
-        })
-    df_atoms = pd.DataFrame(atoms_data)
-    
-    return df_sources, df_atoms, all_qis
+    return df_sources, df_atoms
 
 
 # =============================================================================
-# CALCUL QC (Compatible avec l'UI Gemini)
+# CALCUL QC
 # =============================================================================
-def compute_qc_real(all_qis: List[QiItem]) -> 'pd.DataFrame':
-    """Calcule les QC par clustering et retourne un DataFrame compatible."""
+def compute_qc_real(df_atoms) -> 'pd.DataFrame':
     import pandas as pd
+    
+    if df_atoms.empty:
+        return pd.DataFrame()
+    
+    # Reconstruire les QiItems depuis df_atoms
+    all_qis = []
+    for idx, row in df_atoms.iterrows():
+        all_qis.append(QiItem(
+            subject_id=f"S{idx:04d}",
+            subject_file=row.get("File", "unknown.pdf"),
+            text=row.get("Qi", ""),
+            chapter=row.get("Chapitre", "SUITES NUMÉRIQUES"),
+            year=row.get("Year")
+        ))
     
     qc_list = cluster_qi_to_qc(all_qis)
     
@@ -740,41 +768,42 @@ def compute_qc_real(all_qis: List[QiItem]) -> 'pd.DataFrame':
 # =============================================================================
 # SATURATION RÉELLE
 # =============================================================================
-def compute_saturation_real(all_qis: List[QiItem]) -> 'pd.DataFrame':
-    """Calcule la courbe de saturation RÉELLE basée sur les données."""
+def compute_saturation_real(df_atoms) -> 'pd.DataFrame':
     import pandas as pd
     
-    if not all_qis:
+    if df_atoms.empty:
         return pd.DataFrame(columns=["Sujets (N)", "QC Découvertes", "Saturation (%)"])
     
-    # Grouper les Qi par sujet (dans l'ordre d'ingestion)
-    subjects_order = []
-    seen = set()
-    for qi in all_qis:
-        if qi.subject_id not in seen:
-            seen.add(qi.subject_id)
-            subjects_order.append(qi.subject_id)
+    # Grouper par fichier
+    files = df_atoms["File"].unique().tolist()
     
-    # Calculer QC cumulées à chaque sujet
     data_points = []
-    cumulative_qis = []
+    cumulative_atoms = []
     
-    for i, subject_id in enumerate(subjects_order):
-        # Ajouter les Qi de ce sujet
-        subject_qis = [qi for qi in all_qis if qi.subject_id == subject_id]
-        cumulative_qis.extend(subject_qis)
+    for i, f in enumerate(files):
+        file_atoms = df_atoms[df_atoms["File"] == f].to_dict('records')
+        cumulative_atoms.extend(file_atoms)
         
-        # Recalculer les QC
-        qc_list = cluster_qi_to_qc(cumulative_qis)
+        # Reconstruire QiItems
+        qis = []
+        for idx, row in enumerate(cumulative_atoms):
+            qis.append(QiItem(
+                subject_id=f"S{idx:04d}",
+                subject_file=row.get("File", "unknown.pdf"),
+                text=row.get("Qi", ""),
+                chapter=row.get("Chapitre", "SUITES NUMÉRIQUES"),
+                year=row.get("Year")
+            ))
+        
+        qc_list = cluster_qi_to_qc(qis)
         n_qc = len(qc_list)
         
         data_points.append({
             "Sujets (N)": i + 1,
             "QC Découvertes": n_qc,
-            "Saturation (%)": 0  # Sera calculé après
+            "Saturation (%)": 0
         })
     
-    # Calculer le % de saturation (basé sur le max observé)
     if data_points:
         max_qc = max(d["QC Découvertes"] for d in data_points)
         for d in data_points:
@@ -784,10 +813,9 @@ def compute_saturation_real(all_qis: List[QiItem]) -> 'pd.DataFrame':
 
 
 # =============================================================================
-# AUDIT INTERNE (100% attendu)
+# AUDIT INTERNE
 # =============================================================================
-def audit_internal_real(subject_qis: List[Dict], qc_df: 'pd.DataFrame') -> List[Dict]:
-    """Audit interne : chaque Qi doit mapper vers une QC."""
+def audit_internal_real(subject_qis: List[Dict], qc_df) -> List[Dict]:
     if qc_df.empty or not subject_qis:
         return []
     
@@ -795,16 +823,15 @@ def audit_internal_real(subject_qis: List[Dict], qc_df: 'pd.DataFrame') -> List[
     qc_list = qc_df.to_dict('records')
     
     for qi_item in subject_qis:
-        qi_text = qi_item["Qi"]
+        qi_text = qi_item.get("Qi", "")
         qi_toks = tokenize(qi_text)
         
         best_qc = None
         best_sim = 0.0
         
         for qc in qc_list:
-            # Chercher dans les Evidence
             for ev in qc.get("Evidence", []):
-                ev_toks = tokenize(ev["Qi"])
+                ev_toks = tokenize(ev.get("Qi", ""))
                 sim = jaccard_similarity(qi_toks, ev_toks)
                 if sim > best_sim:
                     best_sim = sim
@@ -812,27 +839,24 @@ def audit_internal_real(subject_qis: List[Dict], qc_df: 'pd.DataFrame') -> List[
         
         if best_sim >= 0.25:
             results.append({
-                "Qi": qi_text[:80] + "…" if len(qi_text) > 80 else qi_text,
+                "Qi": qi_text[:80] + "..." if len(qi_text) > 80 else qi_text,
                 "Statut": "✅ MATCH",
-                "QC": best_qc["QC_ID"] if best_qc else None,
-                "Sim": round(best_sim, 2)
+                "QC": best_qc["QC_ID"] if best_qc else None
             })
         else:
             results.append({
-                "Qi": qi_text[:80] + "…" if len(qi_text) > 80 else qi_text,
+                "Qi": qi_text[:80] + "..." if len(qi_text) > 80 else qi_text,
                 "Statut": "❌ GAP",
-                "QC": None,
-                "Sim": round(best_sim, 2)
+                "QC": None
             })
     
     return results
 
 
 # =============================================================================
-# AUDIT EXTERNE (≥95% attendu)
+# AUDIT EXTERNE
 # =============================================================================
-def audit_external_real(pdf_bytes: bytes, qc_df: 'pd.DataFrame', chapter_filter: str = None) -> Tuple[float, List[Dict]]:
-    """Audit externe : couverture d'un sujet inconnu par les QC."""
+def audit_external_real(pdf_bytes: bytes, qc_df, chapter_filter: str = None) -> Tuple[float, List[Dict]]:
     text = extract_pdf_text(pdf_bytes)
     qi_texts = extract_qi_from_text(text, chapter_filter)
     
@@ -855,23 +879,22 @@ def audit_external_real(pdf_bytes: bytes, qc_df: 'pd.DataFrame', chapter_filter:
         
         for qc in qc_list:
             for ev in qc.get("Evidence", []):
-                ev_toks = tokenize(ev["Qi"])
+                ev_toks = tokenize(ev.get("Qi", ""))
                 sim = jaccard_similarity(qi_toks, ev_toks)
                 if sim > best_sim:
                     best_sim = sim
                     best_qc = qc
         
-        if best_sim >= 0.20:  # Seuil plus bas pour externe
+        if best_sim >= 0.20:
             matched += 1
             status = "✅ MATCH"
         else:
             status = "❌ GAP"
         
         results.append({
-            "Qi": qi_text[:80] + "…" if len(qi_text) > 80 else qi_text,
+            "Qi": qi_text[:80] + "..." if len(qi_text) > 80 else qi_text,
             "Statut": status,
-            "QC": best_qc["QC_ID"] if best_qc and best_sim >= 0.20 else None,
-            "Sim": round(best_sim, 2)
+            "QC": best_qc["QC_ID"] if best_qc and best_sim >= 0.20 else None
         })
     
     coverage = (matched / len(qi_texts)) * 100 if qi_texts else 0
