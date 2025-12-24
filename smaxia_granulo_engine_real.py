@@ -667,63 +667,314 @@ def compute_score_f2(n_q: int, n_total: int, t_rec: Optional[float], psi_q: floa
 
 
 # =============================================================================
-# GÉNÉRATION ARI
+# EXTRACTION TRIGGERS (ABSTRAITS)
 # =============================================================================
-def generate_ari(qi_texts: List[str], chapter: str) -> List[str]:
+def extract_triggers(qi_texts: List[str], qc_type: Optional[str] = None) -> List[str]:
+    """
+    Extrait les déclencheurs abstraits.
+    Si un template existe, utilise ses triggers prédéfinis.
+    Sinon, extrait des n-grams abstraits.
+    """
+    # Si template reconnu, utiliser ses triggers
+    if qc_type and qc_type in QC_TEMPLATES:
+        return QC_TEMPLATES[qc_type]["triggers"][:5]
+    
+    # Sinon, extraire des bigrams abstraits
+    stopwords = {"les", "des", "une", "pour", "que", "qui", "est", "sont", "dans", "par", "sur", "avec", 
+                 "sur", "que", "cet", "cette", "son", "ses", "leur"}
+    
+    bigrams = Counter()
+    for qi in qi_texts:
+        # Abstraire d'abord
+        abstract = abstract_qi_text(qi)
+        toks = [t for t in tokenize(abstract) if t not in stopwords and len(t) >= 3]
+        for i in range(len(toks) - 1):
+            bigram = f"{toks[i]} {toks[i+1]}"
+            # Éviter les bigrams avec des nombres/variables spécifiques
+            if not re.search(r'\b[nkab]\b', bigram):
+                bigrams[bigram] += 1
+    
+    return [phrase for phrase, _ in bigrams.most_common(5)]
+
+
+# =============================================================================
+# GÉNÉRATION ARI (TEMPLATE-BASED)
+# =============================================================================
+def generate_ari(qi_texts: List[str], chapter: str, qc_type: Optional[str] = None) -> List[str]:
+    """
+    Génère un ARI basé sur le template ou la détection de mots-clés.
+    """
+    # Si template reconnu, utiliser son ARI
+    if qc_type and qc_type in QC_TEMPLATES:
+        return QC_TEMPLATES[qc_type]["ari"]
+    
+    # Sinon, fallback sur détection par mots-clés
     combined = " ".join(qi_texts).lower()
     
     if chapter == "SUITES NUMÉRIQUES":
         if any(k in combined for k in ["géométrique", "quotient"]):
-            return ["1. Exprimer u(n+1)", "2. Quotient u(n+1)/u(n)", "3. Simplifier", "4. Constante q"]
+            return QC_TEMPLATES["SUITE_GEOMETRIQUE"]["ari"]
         if any(k in combined for k in ["arithmétique", "différence"]):
-            return ["1. Exprimer u(n+1)", "2. Différence u(n+1)-u(n)", "3. Simplifier", "4. Constante r"]
-        if any(k in combined for k in ["limite", "convergence"]):
-            return ["1. Terme dominant", "2. Factorisation", "3. Limites usuelles", "4. Conclure"]
+            return QC_TEMPLATES["SUITE_ARITHMETIQUE"]["ari"]
+        if any(k in combined for k in ["limite", "convergence", "tend vers"]):
+            return QC_TEMPLATES["LIMITE_SUITE"]["ari"]
         if any(k in combined for k in ["récurrence"]):
-            return ["1. Initialisation", "2. Hérédité", "3. Démontrer P(n+1)", "4. Conclure"]
+            return QC_TEMPLATES["RECURRENCE"]["ari"]
     
-    elif chapter == "FONCTIONS":
-        if any(k in combined for k in ["dérivée"]):
-            return ["1. Identifier f", "2. Dériver", "3. Simplifier f'", "4. Signe"]
+    if chapter == "FONCTIONS":
+        if any(k in combined for k in ["unique solution", "admet une", "équation"]):
+            return QC_TEMPLATES["TVI_UNIQUE"]["ari"]
+        if any(k in combined for k in ["dérivée", "variations", "signe"]):
+            return QC_TEMPLATES["DERIVEE_SIGNE"]["ari"]
     
-    return ["1. Analyser", "2. Méthode", "3. Calculer", "4. Conclure"]
-
-
-# =============================================================================
-# GÉNÉRATION FRT
-# =============================================================================
-def generate_frt(qi_texts: List[str], chapter: str, triggers: List[str]) -> List[Dict]:
-    combined = " ".join(qi_texts).lower()
-    
-    if chapter == "SUITES NUMÉRIQUES" and any(k in combined for k in ["géométrique"]):
-        return [
-            {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "Prouver qu'une suite est géométrique."},
-            {"type": "method", "title": "✅ 2. MÉTHODE", "text": "1. Exprimer u(n+1).\n2. Calculer u(n+1)/u(n).\n3. Simplifier.\n4. Constante q."},
-            {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "Vérifier u(n) ≠ 0."},
-            {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "Suite géométrique de raison q."}
-        ]
-    
+    # ARI générique
     return [
-        {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": f"Questions: {', '.join(triggers[:3]) if triggers else 'voir déclencheurs'}"},
-        {"type": "method", "title": "✅ 2. MÉTHODE", "text": "1. Identifier.\n2. Appliquer.\n3. Calculer.\n4. Conclure."},
-        {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "Vérifier les conditions."},
-        {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "Répondre à la question."}
+        "1. Identifier le type de problème",
+        "2. Rappeler les outils/théorèmes nécessaires",
+        "3. Appliquer la méthode appropriée",
+        "4. Conclure en répondant à la question"
     ]
 
 
 # =============================================================================
-# EXTRACTION TRIGGERS
+# GÉNÉRATION FRT (TEMPLATE-BASED)
 # =============================================================================
-def extract_triggers(qi_texts: List[str]) -> List[str]:
-    stopwords = {"les", "des", "une", "pour", "que", "qui", "est", "sont", "dans", "par", "sur", "avec"}
+def generate_frt(qi_texts: List[str], chapter: str, triggers: List[str], qc_type: Optional[str] = None) -> List[Dict]:
+    """
+    Génère une FRT basée sur le template ou la détection de mots-clés.
+    """
+    # Si template reconnu, utiliser sa FRT
+    if qc_type and qc_type in QC_TEMPLATES:
+        return QC_TEMPLATES[qc_type]["frt"]
     
-    bigrams = Counter()
-    for qi in qi_texts:
-        toks = [t for t in tokenize(qi) if t not in stopwords and len(t) >= 3]
-        for i in range(len(toks) - 1):
-            bigrams[f"{toks[i]} {toks[i+1]}"] += 1
+    # Sinon, fallback sur détection
+    combined = " ".join(qi_texts).lower()
     
-    return [phrase for phrase, _ in bigrams.most_common(4)]
+    if any(k in combined for k in ["unique solution", "admet une"]):
+        return QC_TEMPLATES["TVI_UNIQUE"]["frt"]
+    
+    if chapter == "SUITES NUMÉRIQUES":
+        if any(k in combined for k in ["géométrique"]):
+            return QC_TEMPLATES["SUITE_GEOMETRIQUE"]["frt"]
+        if any(k in combined for k in ["arithmétique"]):
+            return QC_TEMPLATES["SUITE_ARITHMETIQUE"]["frt"]
+        if any(k in combined for k in ["récurrence"]):
+            return QC_TEMPLATES["RECURRENCE"]["frt"]
+        if any(k in combined for k in ["limite"]):
+            return QC_TEMPLATES["LIMITE_SUITE"]["frt"]
+    
+    if chapter == "FONCTIONS":
+        if any(k in combined for k in ["dérivée", "variations"]):
+            return QC_TEMPLATES["DERIVEE_SIGNE"]["frt"]
+    
+    # FRT générique
+    return [
+        {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": f"Questions contenant: {', '.join(triggers[:3]) if triggers else 'voir déclencheurs'}"},
+        {"type": "method", "title": "✅ 2. MÉTHODE", "text": "1. Identifier le problème\n2. Appliquer les outils\n3. Calculer\n4. Conclure"},
+        {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "Vérifier les hypothèses et conditions d'application"},
+        {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "Répondre précisément à la question posée."}
+    ]
+
+
+# =============================================================================
+# ABSTRACTION QC (AXIOME SMAXIA: Instance → Classe)
+# =============================================================================
+# Une QC est une CLASSE abstraite, pas une instance.
+# "Démontrer que f(t)=0,7 sur [0;6]" → "Démontrer l'existence et l'unicité d'une solution f(x)=k sur un intervalle"
+
+# Patterns d'abstraction: valeurs concrètes → variables génériques
+ABSTRACTION_PATTERNS = [
+    # Intervalles AVANT les nombres isolés
+    (r'\[\s*-?\d+[,\.]?\d*\s*[;,]\s*-?\d+[,\.]?\d*\s*\]', '[a;b]'),
+    (r'\[\s*-?\d+[,\.]?\d*\s*[;,]\s*\+?∞\s*\[', '[a;+∞['),
+    (r'\]\s*-∞\s*[;,]\s*-?\d+[,\.]?\d*\s*\]', ']-∞;b]'),
+    
+    # Nombres décimaux et fractions
+    (r'\b\d+[,\.]\d+\b', 'k'),           # 0,7 → k
+    
+    # Fonctions spécifiques → génériques (avant les nombres)
+    (r'\bf\s*\(\s*[txnab]\s*\)', 'f(x)'),
+    (r'\bg\s*\(\s*[txnab]\s*\)', 'f(x)'),
+    (r'\bh\s*\(\s*[txnab]\s*\)', 'f(x)'),
+    
+    # Suites spécifiques → génériques
+    (r'\bu\s*[_\(]\s*n\s*[\)\}]?', 'u_n'),
+    (r'\bv\s*[_\(]\s*n\s*[\)\}]?', 'u_n'),
+    (r'\bw\s*[_\(]\s*n\s*[\)\}]?', 'u_n'),
+    
+    # Années, sessions → supprimées
+    (r'\b20\d{2}\b', ''),
+]
+
+# Templates de QC abstraites par type de problème
+QC_TEMPLATES = {
+    "TVI_UNIQUE": {
+        "pattern": r"(montrer|démontrer|prouver).*équation.*admet.*unique.*solution",
+        "title": "Démontrer l'existence et l'unicité d'une solution f(x)=k sur un intervalle (TVI)",
+        "triggers": ["admet une unique solution", "montrer que l'équation", "unique réel", "solution unique"],
+        "ari": [
+            "1. Vérifier la continuité de f sur [a;b]",
+            "2. Étudier la monotonie stricte (via f')",
+            "3. Calculer f(a) et f(b) (images des bornes)",
+            "4. Vérifier que k ∈ [f(a);f(b)]",
+            "5. Appliquer le corollaire du TVI",
+            "6. Conclure sur l'unicité de α"
+        ],
+        "frt": [
+            {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "Dès que l'énoncé contient: 'Montrer que... admet une unique solution'"},
+            {"type": "method", "title": "✅ 2. MÉTHODE", "text": "• f est continue sur [a;b]\n• f est strictement monotone (tableau de variations)\n• Calcul: f(a)=... et f(b)=...\n• Or k ∈ [f(a);f(b)]\n• D'après le corollaire du TVI, l'équation f(x)=k admet une unique solution"},
+            {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "• Oublier 'continue'\n• Oublier 'strictement' monotone\n• Confondre f(x)=k et f'(x)"},
+            {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "L'équation admet une unique solution α sur [a;b]."}
+        ]
+    },
+    "SUITE_GEOMETRIQUE": {
+        "pattern": r"(montrer|démontrer|prouver).*suite.*géométrique",
+        "title": "Démontrer qu'une suite est géométrique de raison q",
+        "triggers": ["suite géométrique", "raison q", "u(n+1)/u(n)", "quotient constant"],
+        "ari": [
+            "1. Exprimer u(n+1) en fonction de n",
+            "2. Calculer le quotient u(n+1)/u(n)",
+            "3. Simplifier l'expression",
+            "4. Montrer que le quotient est constant = q"
+        ],
+        "frt": [
+            {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "Prouver qu'une suite est géométrique"},
+            {"type": "method", "title": "✅ 2. MÉTHODE", "text": "• Exprimer u(n+1)\n• Calculer u(n+1)/u(n)\n• Simplifier\n• Montrer = constante q"},
+            {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "• Vérifier u(n) ≠ 0 pour tout n\n• Ne pas confondre raison et premier terme"},
+            {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "(u_n) est géométrique de raison q et de premier terme u_0."}
+        ]
+    },
+    "SUITE_ARITHMETIQUE": {
+        "pattern": r"(montrer|démontrer|prouver).*suite.*arithmétique",
+        "title": "Démontrer qu'une suite est arithmétique de raison r",
+        "triggers": ["suite arithmétique", "raison r", "u(n+1)-u(n)", "différence constante"],
+        "ari": [
+            "1. Exprimer u(n+1) en fonction de n",
+            "2. Calculer la différence u(n+1)-u(n)",
+            "3. Simplifier l'expression",
+            "4. Montrer que la différence est constante = r"
+        ],
+        "frt": [
+            {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "Prouver qu'une suite est arithmétique"},
+            {"type": "method", "title": "✅ 2. MÉTHODE", "text": "• Exprimer u(n+1)\n• Calculer u(n+1)-u(n)\n• Simplifier\n• Montrer = constante r"},
+            {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "• Ne pas confondre avec géométrique\n• Bien identifier le premier terme"},
+            {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "(u_n) est arithmétique de raison r et de premier terme u_0."}
+        ]
+    },
+    "RECURRENCE": {
+        "pattern": r"(montrer|démontrer|prouver).*récurrence|par récurrence",
+        "title": "Démontrer une propriété par récurrence",
+        "triggers": ["par récurrence", "pour tout n", "démontrer que pour tout", "P(n)"],
+        "ari": [
+            "1. INITIALISATION: Vérifier P(n_0)",
+            "2. HÉRÉDITÉ: Supposer P(n) vraie",
+            "3. Démontrer P(n+1) à partir de P(n)",
+            "4. CONCLURE par le principe de récurrence"
+        ],
+        "frt": [
+            {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "Prouver une propriété 'pour tout entier n ≥ n_0'"},
+            {"type": "method", "title": "✅ 2. MÉTHODE", "text": "• Initialisation: P(n_0) vraie? Vérification\n• Hérédité: Soit n≥n_0, supposons P(n) vraie\n• Montrons P(n+1): [développement]\n• Donc P(n+1) vraie"},
+            {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "• Oublier l'initialisation\n• Ne pas écrire 'supposons P(n) vraie'\n• Oublier la conclusion"},
+            {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "D'après le principe de récurrence, P(n) est vraie pour tout n ≥ n_0."}
+        ]
+    },
+    "LIMITE_SUITE": {
+        "pattern": r"(calculer|déterminer).*limite.*suite|limite.*tend.*infini",
+        "title": "Calculer la limite d'une suite",
+        "triggers": ["limite de la suite", "n tend vers +∞", "convergence", "lim u_n"],
+        "ari": [
+            "1. Identifier la forme de u_n",
+            "2. Factoriser par le terme dominant",
+            "3. Appliquer les limites usuelles",
+            "4. Conclure"
+        ],
+        "frt": [
+            {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "Calculer une limite quand n → +∞"},
+            {"type": "method", "title": "✅ 2. MÉTHODE", "text": "• Identifier forme (quotient, exponentielle...)\n• Factoriser par terme dominant\n• Appliquer théorèmes (croissances comparées...)\n• Conclure"},
+            {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "• Formes indéterminées: ∞-∞, 0×∞, ∞/∞\n• Ne pas oublier les croissances comparées"},
+            {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "lim(n→+∞) u_n = L (ou +∞ ou -∞)."}
+        ]
+    },
+    "DERIVEE_SIGNE": {
+        "pattern": r"(étudier|déterminer).*signe.*dérivée|variations.*fonction",
+        "title": "Étudier le signe de la dérivée et les variations",
+        "triggers": ["signe de f'", "tableau de variations", "croissante décroissante", "extremum"],
+        "ari": [
+            "1. Calculer f'(x)",
+            "2. Résoudre f'(x) = 0",
+            "3. Étudier le signe de f'(x)",
+            "4. Dresser le tableau de variations"
+        ],
+        "frt": [
+            {"type": "usage", "title": "🔔 1. QUAND UTILISER", "text": "Étudier les variations d'une fonction"},
+            {"type": "method", "title": "✅ 2. MÉTHODE", "text": "• Calculer f'(x)\n• Résoudre f'(x)=0\n• Tableau de signes de f'\n• En déduire les variations de f"},
+            {"type": "trap", "title": "⚠️ 3. PIÈGES", "text": "• Erreurs de calcul de dérivée\n• Oublier le domaine de définition\n• Confondre f et f'"},
+            {"type": "conc", "title": "✍️ 4. CONCLUSION", "text": "f est croissante sur... et décroissante sur..."}
+        ]
+    }
+}
+
+
+def abstract_qi_text(text: str) -> str:
+    """
+    Abstrait un texte Qi en remplaçant les valeurs concrètes par des variables génériques.
+    "f(t)=0,7 sur [0;6]" → "f(x)=k sur [a;b]"
+    """
+    result = text
+    for pattern_tuple in ABSTRACTION_PATTERNS:
+        if len(pattern_tuple) == 2:
+            pattern, replacement = pattern_tuple
+            flags = 0
+        else:
+            pattern, replacement, flags = pattern_tuple
+        result = re.sub(pattern, replacement, result, flags=flags)
+    
+    # Nettoyer les espaces multiples
+    result = re.sub(r'\s+', ' ', result).strip()
+    return result
+
+
+def detect_qc_type(qi_texts: List[str]) -> Optional[str]:
+    """
+    Détecte le type de QC à partir des Qi pour appliquer le bon template.
+    Retourne la clé du template ou None.
+    """
+    combined = " ".join(qi_texts).lower()
+    
+    for qc_type, template in QC_TEMPLATES.items():
+        if re.search(template["pattern"], combined, re.IGNORECASE):
+            return qc_type
+    
+    return None
+
+
+def generate_abstract_title(qi_texts: List[str], qc_type: Optional[str]) -> str:
+    """
+    Génère un titre de QC abstrait (classe, pas instance).
+    """
+    # Si on a un template reconnu, utiliser son titre
+    if qc_type and qc_type in QC_TEMPLATES:
+        return QC_TEMPLATES[qc_type]["title"]
+    
+    # Sinon, abstraire la Qi la plus courte
+    if not qi_texts:
+        return "Question type non identifiée"
+    
+    # Prendre la Qi la plus représentative (ni trop courte ni trop longue)
+    candidates = [q for q in qi_texts if 40 < len(q) < 200]
+    if not candidates:
+        candidates = qi_texts
+    
+    best = min(candidates, key=len)
+    
+    # Abstraire
+    abstract = abstract_qi_text(best)
+    
+    # Tronquer si trop long
+    if len(abstract) > 100:
+        abstract = abstract[:100].rsplit(' ', 1)[0] + "..."
+    
+    return abstract
 
 
 # =============================================================================
@@ -739,20 +990,21 @@ class QiItem:
 
 
 # =============================================================================
-# CLUSTERING Qi → QC (AVEC VARIABLES F1/F2 COMPLÈTES)
+# CLUSTERING Qi → QC (AVEC ABSTRACTION SMAXIA)
 # =============================================================================
 def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dict]:
     """
-    Clustering des Qi en QC avec calcul complet des variables F1/F2.
+    Clustering des Qi en QC avec ABSTRACTION SMAXIA.
     
-    Variables retournées pour chaque QC:
-    - Score(q), n_q, Ψ, N_tot, t_réc, α, Σ_Tj
+    AXIOME: Une QC est une CLASSE, pas une instance.
+    - Le titre ne contient jamais de valeurs spécifiques
+    - Les Qi (instances) sont conservées comme preuves
     """
     if not qis:
         return []
     
     clusters = []
-    ALPHA = 5.0  # Paramètre α fixe (peut être configuré)
+    ALPHA = 5.0
     
     for qi in qis:
         toks = tokenize(qi.text)
@@ -778,15 +1030,16 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
         qi_texts = [q.text for q in c["qis"]]
         chapter = c["qis"][0].chapter if c["qis"] else "SUITES NUMÉRIQUES"
         
-        # Titre = Qi la plus courte (mais significative)
-        title = min(qi_texts, key=lambda x: len(x) if len(x) > 30 else 1000)
-        if len(title) > 80:
-            title = title[:80].rsplit(" ", 1)[0] + "..."
+        # ÉTAPE CLÉ: Détecter le type de QC pour appliquer le bon template
+        qc_type = detect_qc_type(qi_texts)
         
-        # Déclencheurs, ARI, FRT
-        triggers = extract_triggers(qi_texts)
-        ari = generate_ari(qi_texts, chapter)
-        frt_data = generate_frt(qi_texts, chapter, triggers)
+        # TITRE ABSTRAIT (jamais de valeurs concrètes)
+        title = generate_abstract_title(qi_texts, qc_type)
+        
+        # Déclencheurs, ARI, FRT basés sur le template
+        triggers = extract_triggers(qi_texts, qc_type)
+        ari = generate_ari(qi_texts, chapter, qc_type)
+        frt_data = generate_frt(qi_texts, chapter, triggers, qc_type)
         
         n_q = len(qi_texts)
         
@@ -795,7 +1048,7 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
         psi_q = psi_details["psi"]
         sum_tj = psi_details["sum_tj"]
         
-        # Calcul de t_réc (récence)
+        # Calcul de t_réc
         years = [q.year for q in c["qis"] if q.year is not None]
         if years:
             max_year = max(years)
@@ -803,11 +1056,11 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
         else:
             t_rec = None
         
-        # F2: Calcul détaillé du Score
+        # F2: Score
         score_details = compute_score_f2_detailed(n_q, total_qi, t_rec, psi_q, ALPHA)
         score = score_details["score"]
         
-        # Organisation des Qi par fichier source (pour UI)
+        # Organisation des Qi par fichier source (PREUVES)
         qi_by_file = defaultdict(list)
         for q in c["qis"]:
             qi_by_file[q.subject_file].append({
@@ -832,9 +1085,10 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
             "Chapitre": chapter,
             "QC_ID": c["id"],
             "FRT_ID": c["id"],
+            "QC_Type": qc_type if qc_type else "GENERIC",
             "Titre": title,
             
-            # Variables F2 (affichage principal)
+            # Variables F2
             "Score": score,
             "n_q": n_q,
             "Psi": psi_q,
@@ -843,7 +1097,7 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
             "Alpha": ALPHA,
             "Sum_Tj": sum_tj,
             
-            # Détails F1/F2 (pour audit)
+            # Détails F1/F2
             "F1_details": psi_details,
             "F2_details": score_details,
             
@@ -852,7 +1106,7 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
             "ARI": ari,
             "FRT_DATA": frt_data,
             
-            # Preuves (Qi)
+            # Preuves (Qi - instances concrètes)
             "Evidence": evidence,
             "EvidenceBySubject": evidence_by_subject
         })
@@ -1083,10 +1337,8 @@ def audit_external_real(pdf_bytes: bytes, qc_df, chapter_filter: str = None) -> 
     return round((matched / len(qi_texts)) * 100 if qi_texts else 0, 1), results
 
 # =============================================================================
-# VERSION MARKER - V3.1 POST-AUDIT GPT - 2024-12-24
 # Si vous voyez PV164.pdf, ce fichier N'EST PAS déployé correctement!
 # =============================================================================
-VERSION = "V3.4-FULL-F1F2-20241224"
 
-# VERSION MARKER
-VERSION = "V3.4-FULL-F1F2-20241224"
+
+VERSION = "V3.5-ABSTRACTION-20241224"
