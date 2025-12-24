@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import datetime
 
 # Import du moteur RÉEL
-from smaxia_granulo_engine_real_v2 import (
+from smaxia_granulo_engine_real import (
     ingest_real,
     compute_qc_real,
     compute_saturation_real,
