@@ -169,15 +169,21 @@ def is_math_content(text: str) -> bool:
 # =============================================================================
 # CORRECTIF 5: BFS RÉCURSIF RÉEL
 # =============================================================================
-def scrape_pdf_links_bfs(seed_urls: List[str], limit: int, max_pages: int = 100) -> Tuple[List[str], List[dict]]:
+def scrape_pdf_links_bfs(seed_urls: List[str], limit: int, max_pages: int = 100) -> Tuple[List[Dict], List[dict]]:
     """
-    BFS récursif réel pour collecter les PDFs de sujets.
-    Retourne (pdfs, audit_log) pour traçabilité.
+    BFS récursif réel pour collecter les PDFs de sujets ET leurs corrigés.
+    Retourne (sujets_avec_corriges, audit_log).
+    
+    Chaque élément de sujets_avec_corriges est un dict:
+    {"sujet_url": "...", "corrige_url": "..." ou None}
     """
     base = "https://www.apmep.fr"
     queue = list(dict.fromkeys(seed_urls))
     visited = set()
-    pdfs = []
+    
+    # Collecter séparément sujets et corrigés
+    sujets = []  # URLs des sujets
+    corriges = []  # URLs des corrigés
     audit_log = []
     
     def normalize_link(href: str) -> str:
@@ -185,7 +191,18 @@ def scrape_pdf_links_bfs(seed_urls: List[str], limit: int, max_pages: int = 100)
             return href
         return urljoin(base + "/", href.lstrip("/"))
     
-    while queue and len(visited) < max_pages and len(pdfs) < limit * 3:
+    def get_base_name(url: str) -> str:
+        """Extrait le nom de base pour matcher sujet/corrigé."""
+        fn = url.split("/")[-1].lower()
+        # Supprimer les variantes de "corrigé"
+        fn = re.sub(r'corr?ig[eé]?_?', '', fn)
+        fn = re.sub(r'_corr?_?', '', fn)
+        # Supprimer extensions et numéros de version
+        fn = re.sub(r'_?\d*\.pdf$', '', fn)
+        fn = re.sub(r'_[a-z]{2,3}$', '', fn)  # _DV, _FK, etc.
+        return fn
+    
+    while queue and len(visited) < max_pages and (len(sujets) + len(corriges)) < limit * 4:
         url = queue.pop(0).split("#")[0]
         if url in visited:
             continue
@@ -199,7 +216,7 @@ def scrape_pdf_links_bfs(seed_urls: List[str], limit: int, max_pages: int = 100)
             audit_log.append({"url": url, "status": "error", "reason": str(e)})
             continue
         
-        # 1) Collecter les PDFs directs
+        # Collecter les PDFs
         for a in soup.find_all("a", href=True):
             href = a["href"]
             if ".pdf" not in href.lower():
@@ -208,20 +225,23 @@ def scrape_pdf_links_bfs(seed_urls: List[str], limit: int, max_pages: int = 100)
             pdf_url = normalize_link(href)
             fn_lower = pdf_url.lower().split("/")[-1]
             
-            # Filtrer les non-sujets
+            # Filtrer les non-sujets (bulletins, lettres)
             if any(x in fn_lower for x in ["bulletin", "lettre", "actualite", "pv1", "pv2"]):
-                audit_log.append({"url": pdf_url, "status": "rejected", "reason": "non-sujet (bulletin/lettre)"})
                 continue
             
-            if pdf_url not in pdfs:
-                # Priorité aux sujets (non-corrigés en premier)
-                if "corrig" not in fn_lower:
-                    pdfs.insert(0, pdf_url)
-                else:
-                    pdfs.append(pdf_url)
-                audit_log.append({"url": pdf_url, "status": "accepted", "reason": "PDF sujet candidat"})
+            # Classer en sujet ou corrigé
+            is_corrige = any(x in fn_lower for x in ["corrig", "corr_", "_corr"])
+            
+            if is_corrige:
+                if pdf_url not in corriges:
+                    corriges.append(pdf_url)
+                    audit_log.append({"url": pdf_url, "status": "corrige", "reason": "Corrigé détecté"})
+            else:
+                if pdf_url not in sujets:
+                    sujets.append(pdf_url)
+                    audit_log.append({"url": pdf_url, "status": "sujet", "reason": "Sujet détecté"})
         
-        # 2) Explorer les sous-pages pertinentes (BFS)
+        # Explorer les sous-pages (BFS)
         for a in soup.find_all("a", href=True):
             href = a["href"]
             nxt = normalize_link(href)
@@ -230,24 +250,41 @@ def scrape_pdf_links_bfs(seed_urls: List[str], limit: int, max_pages: int = 100)
             if "apmep.fr" not in nxt_lower:
                 continue
             
-            # Pages pertinentes pour les sujets
             if any(k in nxt_lower for k in ["annee-", "bac-", "annales", "terminale", "sujets"]):
                 nxt_clean = nxt.split("#")[0]
                 if nxt_clean not in visited and nxt_clean not in queue:
                     queue.append(nxt_clean)
         
-        time.sleep(0.15)  # Politesse anti-ban
+        time.sleep(0.15)
     
-    # Dédoublonner et limiter
-    out, seen = [], set()
-    for p in pdfs:
-        if p not in seen:
-            seen.add(p)
-            out.append(p)
-        if len(out) >= limit:
+    # Matcher sujets avec leurs corrigés
+    result = []
+    for sujet_url in sujets:
+        sujet_base = get_base_name(sujet_url)
+        
+        # Chercher le corrigé correspondant
+        corrige_match = None
+        best_score = 0
+        
+        for corrige_url in corriges:
+            corrige_base = get_base_name(corrige_url)
+            
+            # Score de similarité simple
+            if sujet_base in corrige_base or corrige_base in sujet_base:
+                score = len(set(sujet_base) & set(corrige_base))
+                if score > best_score:
+                    best_score = score
+                    corrige_match = corrige_url
+        
+        result.append({
+            "sujet_url": sujet_url,
+            "corrige_url": corrige_match
+        })
+        
+        if len(result) >= limit:
             break
     
-    return out, audit_log
+    return result, audit_log
 
 
 # =============================================================================
@@ -269,14 +306,36 @@ def download_pdf(url: str) -> Optional[bytes]:
 
 
 # =============================================================================
-# EXTRACTION TEXTE PDF
+# EXTRACTION TEXTE PDF (AMÉLIORÉE - GESTION MOTS COLLÉS)
 # =============================================================================
 def extract_pdf_text(pdf_bytes: bytes, max_pages: int = 30) -> str:
     text_parts = []
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for i in range(min(len(pdf.pages), max_pages)):
-                t = pdf.pages[i].extract_text() or ""
+                page = pdf.pages[i]
+                
+                # Méthode 1: extraction standard
+                t = page.extract_text() or ""
+                
+                # Méthode 2: si texte collé, essayer avec layout
+                if t and len(t) > 100:
+                    # Détecter mots collés (mots très longs sans espaces)
+                    words = t.split()
+                    avg_word_len = sum(len(w) for w in words) / max(len(words), 1)
+                    
+                    if avg_word_len > 15:  # Mots anormalement longs = collés
+                        # Essayer extraction avec paramètres différents
+                        t2 = page.extract_text(x_tolerance=3, y_tolerance=3) or t
+                        if t2:
+                            t = t2
+                        
+                        # Ajouter espaces avant majuscules (heuristique)
+                        t = re.sub(r'([a-zéèêëàâùûîïôç])([A-ZÉÈÊËÀÂÙÛÎÏÔÇ])', r'\1 \2', t)
+                        # Ajouter espaces autour des chiffres isolés
+                        t = re.sub(r'(\d)([A-Za-zéèêëàâùûîïôç])', r'\1 \2', t)
+                        t = re.sub(r'([A-Za-zéèêëàâùûîïôç])(\d)', r'\1 \2', t)
+                
                 if t.strip():
                     text_parts.append(t)
     except Exception:
@@ -611,43 +670,47 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
 # =============================================================================
 def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str = None, progress_callback=None):
     """
-    Ingestion RÉELLE avec BFS récursif et audit complet.
+    Ingestion RÉELLE avec BFS récursif, collecte sujets + corrigés.
     """
     import pandas as pd
     
-    cols_src = ["Fichier", "Nature", "Annee", "Telechargement", "Qi_Data"]
+    cols_src = ["Fichier", "Nature", "Annee", "Telechargement", "Corrige", "Qi_Data"]
     cols_atm = ["FRT_ID", "Qi", "File", "Year", "Chapitre"]
     
-    # Déterminer les seeds (ignorer page d'accueil APMEP)
+    # Déterminer les seeds
     seeds = []
     for url in urls:
         url_lower = url.lower().strip().rstrip("/")
         if url_lower in ["https://apmep.fr", "https://www.apmep.fr", "http://apmep.fr"]:
-            seeds.extend(SEED_URLS_FRANCE)  # [P3-CONFIG]
+            seeds.extend(SEED_URLS_FRANCE)
         else:
             seeds.append(url)
     
     if not seeds:
         seeds = SEED_URLS_FRANCE
     
-    # CORRECTIF 5: BFS récursif réel
-    pdf_links, scrape_audit = scrape_pdf_links_bfs(seeds, limit=volume * 2)
+    # BFS pour collecter sujets + corrigés
+    sujets_corriges, scrape_audit = scrape_pdf_links_bfs(seeds, limit=volume * 2)
     
-    if not pdf_links:
+    if not sujets_corriges:
         return pd.DataFrame(columns=cols_src), pd.DataFrame(columns=cols_atm)
     
     subjects = []
     atoms = []
     processed = 0
     
-    for idx, pdf_url in enumerate(pdf_links):
+    for idx, item in enumerate(sujets_corriges):
         if processed >= volume:
             break
         
         if progress_callback:
-            progress_callback((idx + 1) / len(pdf_links))
+            progress_callback((idx + 1) / len(sujets_corriges))
         
-        pdf_bytes = download_pdf(pdf_url)
+        sujet_url = item["sujet_url"]
+        corrige_url = item["corrige_url"]
+        
+        # Télécharger le sujet
+        pdf_bytes = download_pdf(sujet_url)
         if not pdf_bytes:
             continue
         
@@ -655,15 +718,23 @@ def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str 
         if not text.strip() or len(text) < 200:
             continue
         
-        # Validation globale du PDF
-        if not is_math_content(text[:3000]):
+        filename = sujet_url.split("/")[-1].split("?")[0]
+        
+        # Pour les PDFs BAC identifiés par nom, être plus permissif
+        is_bac_by_name = any(k in filename.lower() for k in ["bac", "metropole", "polynesie", "asie", "amerique", "spe_", "terminale"])
+        
+        # Validation du contenu
+        if not is_bac_by_name and not is_math_content(text[:3000]):
             continue
         
-        filename = pdf_url.split("/")[-1].split("?")[0]
         nature = detect_nature(filename, text)
         year = detect_year(filename, text)
         
         qi_texts, qi_audit = extract_qi_from_text(text, chapter_filter)
+        
+        # Si pas de Qi avec filtre, essayer sans filtre pour les BAC
+        if not qi_texts and is_bac_by_name and chapter_filter:
+            qi_texts, _ = extract_qi_from_text(text, None)
         
         if not qi_texts:
             continue
@@ -675,8 +746,12 @@ def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str 
             qi_data.append({"Qi": qi_txt, "FRT_ID": None})
         
         subjects.append({
-            "Fichier": filename, "Nature": nature, "Annee": year if year else "N/A",
-            "Telechargement": pdf_url, "Qi_Data": qi_data
+            "Fichier": filename,
+            "Nature": nature,
+            "Annee": year if year else "N/A",
+            "Telechargement": sujet_url,
+            "Corrige": corrige_url if corrige_url else "Non trouvé",
+            "Qi_Data": qi_data
         })
         
         processed += 1
@@ -797,4 +872,4 @@ def audit_external_real(pdf_bytes: bytes, qc_df, chapter_filter: str = None) -> 
 # VERSION MARKER - V3.1 POST-AUDIT GPT - 2024-12-24
 # Si vous voyez PV164.pdf, ce fichier N'EST PAS déployé correctement!
 # =============================================================================
-VERSION = "V3.1-AUDIT-GPT-20241224"
+VERSION = "V3.2-CORRIGES-20241224"
