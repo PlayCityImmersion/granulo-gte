@@ -307,112 +307,167 @@ class QiItem:
 # AXIOME SMAXIA : "La QC est la Qi Championne qui a subi une Mue"
 # =============================================================================
 # PRINCIPE : SÉLECTION + MUTATION (pas génération inventive)
-# 1. ÉLECTION : Trouver la Qi Championne (meilleur score de représentativité)
-# 2. RÉPARATION : Décoller les mots si nécessaire
-# 3. MUE : Transformer cette Qi en QC via 3 opérations strictes
+# 0. RÉPARATION (Sanitizer) : Décoller les mots + nettoyer
+# 1. NETTOYAGE : Constantes → Invariants
+# 2. TRADUCTION : Verbe → "Comment + verbe"
+# 3. STANDARDISATION : Grammaire + ponctuation
 # =============================================================================
 
-def reparer_texte_colle(texte: str) -> str:
+class SmaxiaSanitizer:
     """
-    RÉPARATION : Sépare les mots collés issus de l'extraction PDF défectueuse.
+    STEP 0 : Nettoyage et décollage des mots issus de l'extraction PDF.
+    Optimisé pour le français mathématique.
     """
-    result = texte
     
-    # Liste exhaustive des séparations
-    separations = [
-        # Expressions longues d'abord
-        (r'pourtoutentiernaturel', 'pour tout entier naturel '),
-        (r'pourtoutentier', 'pour tout entier '),
-        (r'entiernaturel', 'entier naturel '),
-        (r'uniquesolution', 'unique solution '),
-        (r'équationdifférentielle', 'équation différentielle '),
-        (r'valeurapprochée', 'valeur approchée '),
+    # Dictionnaire de séparation français mathématique
+    FRENCH_MATH_SPLITS = [
+        # Expressions longues (ordre important)
+        ('pourtoutentiernaturel', 'pour tout entier naturel '),
+        ('pourtoutentier', 'pour tout entier '),
+        ('entiernaturel', 'entier naturel '),
+        ('uniquesolution', 'unique solution '),
+        ('équationdifférentielle', 'équation différentielle '),
+        ('probabilitéque', 'probabilité que '),
+        ('probabilitéde', 'probabilité de '),
+        ('connexionsoit', 'connexion soit '),
+        ('laconnexion', 'la connexion '),
+        ('serveurB', 'serveur B '),
+        ('estégaleà', 'est égale à '),
+        ('estégal', 'est égal '),
+        ('soitstable', 'soit stable '),
+        ('stableet', 'stable et '),
+        ('passeparle', 'passe par le '),
+        ('etpasse', 'et passe '),
         
-        # Verbes + articles/conjonctions
-        (r'([Dd]émontrer)(que)', r'\1 \2'),
-        (r'([Mm]ontrer)(que)', r'\1 \2'),
-        (r'([Pp]rouver)(que)', r'\1 \2'),
-        (r'([Vv]érifier)(que)', r'\1 \2'),
-        (r'([Cc]alculer)(la|le|les|une|un|l\')', r'\1 \2'),
-        (r'([Dd]éterminer)(la|le|les|une|un|l\')', r'\1 \2'),
-        (r'([Éé]tudier)(la|le|les|une|un|l\')', r'\1 \2'),
-        (r'([Rr]ésoudre)(une|un|l\')', r'\1 \2'),
-        (r'([Ee]n)(déduire)', r'\1 \2'),
-        (r'([Dd]éduire)(que)', r'\1 \2'),
+        # Verbes + que/articles
+        ('Démontrerque', 'Démontrer que '),
+        ('démontrerque', 'démontrer que '),
+        ('Montrerque', 'Montrer que '),
+        ('montrerque', 'montrer que '),
+        ('Prouverque', 'Prouver que '),
+        ('prouverque', 'prouver que '),
+        ('Vérifierque', 'Vérifier que '),
+        ('Calculerla', 'Calculer la '),
+        ('calculerla', 'calculer la '),
+        ('Calculerle', 'Calculer le '),
+        ('Déterminerla', 'Déterminer la '),
+        ('déterminerla', 'déterminer la '),
+        ('Étudierle', 'Étudier le '),
+        ('Résoudreune', 'Résoudre une '),
+        ('résoudreune', 'résoudre une '),
+        ('Endéduire', 'En déduire '),
+        ('endéduire', 'en déduire '),
         
-        # que + suite
-        (r'(que)(la)', r'\1 \2'),
-        (r'(que)(le)', r'\1 \2'),
-        (r'(que)(l\')', r'\1 \2'),
-        (r'(que)(pour)', r'\1 \2'),
-        (r'(que)(une)', r'\1 \2'),
-        (r'(que)(un)', r'\1 \2'),
-        (r'(que)(f\()', r'\1 \2'),
+        # Articles + noms
+        ('quela', 'que la '),
+        ('quele', 'que le '),
+        ('quel\'', "que l'"),
+        ('quepour', 'que pour '),
+        ('queune', 'que une '),
+        ('quef(', 'que f('),
+        ('lalimite', 'la limite '),
+        ('lasuite', 'la suite '),
+        ('lafonction', 'la fonction '),
+        ('laprobabilité', 'la probabilité '),
+        ('ladérivée', 'la dérivée '),
+        ('lesigne', 'le signe '),
+        ('letableau', 'le tableau '),
+        ('unesuite', 'une suite '),
+        ('unefonction', 'une fonction '),
+        ('uneunique', 'une unique '),
+        ('uneéquation', 'une équation '),
+        ('unentier', 'un entier '),
+        ('l\'aire', "l'aire "),
+        ('l\'équation', "l'équation "),
+        ('l\'intervalle', "l'intervalle "),
         
-        # la/le/une + nom
-        (r'(la)(limite)', r'\1 \2'),
-        (r'(la)(suite)', r'\1 \2'),
-        (r'(la)(fonction)', r'\1 \2'),
-        (r'(la)(probabilité)', r'\1 \2'),
-        (r'(la)(dérivée)', r'\1 \2'),
-        (r'(le)(signe)', r'\1 \2'),
-        (r'(le)(tableau)', r'\1 \2'),
-        (r'(une)(suite)', r'\1 \2'),
-        (r'(une)(fonction)', r'\1 \2'),
-        (r'(une)(unique)', r'\1 \2'),
-        (r'(une)(équation)', r'\1 \2'),
-        (r'(un)(entier)', r'\1 \2'),
-        
-        # Prépositions
-        (r'(de)(la|le|l\'|raison)', r'\1 \2'),
-        (r'(du)(domaine)', r'\1 \2'),
-        (r'(sur)(l\'|\[)', r'\1 \2'),
-        (r'(dans)(l\')', r'\1 \2'),
-        (r'(pour)(tout)', r'\1 \2'),
-        (r'(tout)(entier)', r'\1 \2'),
-        (r'(entier)(naturel)', r'\1 \2'),
-        (r'(naturel)(n)', r'\1 \2'),
+        # Prépositions et connexions
+        ('dela', 'de la '),
+        ('dele', 'de le '),
+        ('deraison', 'de raison '),
+        ('dudomaine', 'du domaine '),
+        ('surl\'', "sur l'"),
+        ('surle', 'sur le '),
+        ('sur[', 'sur ['),
+        ('dansl\'', "dans l'"),
+        ('pourtout', 'pour tout '),
+        ('toutentier', 'tout entier '),
         
         # Verbes/adjectifs
-        (r'(suite)(est)', r'\1 \2'),
-        (r'(est)(géométrique)', r'\1 \2'),
-        (r'(est)(arithmétique)', r'\1 \2'),
-        (r'(est)(vraie)', r'\1 \2'),
-        (r'(est)(croissante)', r'\1 \2'),
-        (r'(est)(décroissante)', r'\1 \2'),
-        (r'(admet)(une)', r'\1 \2'),
-        (r'(limite)(de)', r'\1 \2'),
-        (r'(tend)(vers)', r'\1 \2'),
-        (r'(quand)(n)', r'\1 \2'),
-        (r'(n)(tend)', r'\1 \2'),
-        (r'(par)(récurrence)', r'\1 \2'),
-        (r'(géométrique)(de)', r'\1 \2'),
-        (r'(raison)(q)', r'\1 \2'),
-        (r'(solution)(sur)', r'\1 \2'),
-        (r'(aire)(du)', r'\1 \2'),
-        
-        # Cas spéciaux avec =
-        (r'(=k)(admet)', r'\1 \2'),
-        (r'(\))(admet)', r'\1 \2'),
-        (r'(\))(est)', r'\1 \2'),
-        
-        # suite + est
-        (r'(suite)\(', r'\1 ('),
+        ('suiteest', 'suite est '),
+        (')est', ') est '),
+        ('estgéométrique', 'est géométrique '),
+        ('estarithmétique', 'est arithmétique '),
+        ('estvraie', 'est vraie '),
+        ('estcroissante', 'est croissante '),
+        ('estdécroissante', 'est décroissante '),
+        ('admetune', 'admet une '),
+        ('limitede', 'limite de '),
+        ('tendvers', 'tend vers '),
+        ('quandn', 'quand n '),
+        ('ntend', 'n tend '),
+        ('parrécurrence', 'par récurrence '),
+        ('géométriquede', 'géométrique de '),
+        ('raisonq', 'raison q'),
+        ('solutionsur', 'solution sur '),
+        ('airedu', 'aire du '),
     ]
     
-    for pattern, replacement in separations:
-        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    def clean_garbage_chars(self, text: str) -> str:
+        """Nettoie les résidus d'encodage PDF."""
+        text = text.replace("â€™", "'")
+        text = text.replace("Â", "")
+        text = text.replace("\n", " ")
+        text = text.replace("\r", " ")
+        return re.sub(r'\s+', ' ', text).strip()
     
-    # Règle générique : insérer espace avant majuscule au milieu d'un mot
-    result = re.sub(r'([a-zéèêëàâùûîïôç])([A-ZÉÈÊËÀÂÙÛÎÏÔÇ])', r'\1 \2', result)
+    def isolate_math_operators(self, text: str) -> str:
+        """Sépare les symboles mathématiques du texte."""
+        # Espace autour des opérateurs
+        text = re.sub(r'([=<>+])', r' \1 ', text)
+        # Espace entre lettre et chiffre
+        text = re.sub(r'([a-zA-Zéèêëàâùûîïôç])(\d)', r'\1 \2', text)
+        # Espace entre chiffre et lettre
+        text = re.sub(r'(\d)([a-zA-Zéèêëàâùûîïôç])', r'\1 \2', text)
+        return text
     
-    # Règle : espace après ponctuation si suivi d'une lettre
-    result = re.sub(r'([,;])([a-zA-ZéèêëàâùûîïôçÉÈÊËÀÂÙÛÎÏÔÇ])', r'\1 \2', result)
+    def repair_glued_french(self, text: str) -> str:
+        """Répare les mots collés avec le dictionnaire français mathématique."""
+        result = text
+        
+        # Appliquer toutes les séparations
+        for glued, separated in self.FRENCH_MATH_SPLITS:
+            result = result.replace(glued, separated)
+        
+        # Règle générique : espace avant majuscule au milieu d'un mot
+        result = re.sub(r'([a-zéèêëàâùûîïôç])([A-ZÉÈÊËÀÂÙÛÎÏÔÇ])', r'\1 \2', result)
+        
+        # Espace après ponctuation
+        result = re.sub(r'([,;])([a-zA-Zéèêëàâùûîïôç])', r'\1 \2', result)
+        
+        return result
     
-    # Nettoyer les espaces multiples
-    result = re.sub(r'\s+', ' ', result)
-    
-    return result.strip()
+    def sanitize(self, raw_text: str) -> str:
+        """
+        PIPELINE STEP 0 SMAXIA - Nettoyage complet.
+        """
+        # 1. Nettoyage basique (encodage)
+        clean_1 = self.clean_garbage_chars(raw_text)
+        
+        # 2. Isolation des opérateurs mathématiques
+        clean_2 = self.isolate_math_operators(clean_1)
+        
+        # 3. Décollage des mots français
+        clean_3 = self.repair_glued_french(clean_2)
+        
+        # 4. Nettoyage final des espaces
+        final = re.sub(r'\s+', ' ', clean_3).strip()
+        
+        return final
+
+
+# Instance globale du Sanitizer
+_sanitizer = SmaxiaSanitizer()
 
 def operation_nettoyage(texte: str) -> str:
     """
@@ -522,8 +577,6 @@ def operation_traduction(texte: str) -> str:
 def operation_standardisation(texte: str) -> str:
     """
     OPÉRATION 3 : STANDARDISATION - Corrections grammaticales + ponctuation
-    - Élisions françaises (de une → d'une, que une → qu'une)
-    - Point d'interrogation final
     """
     result = texte
     
@@ -536,9 +589,14 @@ def operation_standardisation(texte: str) -> str:
     result = re.sub(r'\bsi il\b', "s'il", result)
     result = re.sub(r'\bde entier\b', "d'entier", result)
     
-    # Nettoyer =k=k doublons
+    # Nettoyer =k doublons et erreurs
     result = re.sub(r'=k=k', '=k', result)
-    result = re.sub(r'q=k', 'q', result)  # raison q, pas q=k
+    result = re.sub(r'q\s*=\s*k', 'q', result)  # raison q, pas q=k
+    result = re.sub(r'r\s*=\s*k', 'r', result)  # raison r, pas r=k
+    
+    # Nettoyer les espaces autour de l'infini
+    result = re.sub(r'\+\s*∞', '+∞', result)
+    result = re.sub(r'-\s*∞', '-∞', result)
     
     # Nettoyer la fin de phrase
     result = re.sub(r'\s*[\.,:;]+\s*$', '', result)
@@ -555,13 +613,13 @@ def mue_qi_vers_qc(qi_championne: str) -> str:
     ALGORITHME DE MUE : Transforme la Qi Championne en titre QC
     
     Applique les 4 opérations dans l'ordre :
-    0. RÉPARATION : Décoller les mots si nécessaire
+    0. SANITIZER : Nettoyer + décoller les mots (SmaxiaSanitizer)
     1. NETTOYAGE : Remplacer constantes → invariants
     2. TRADUCTION : Verbe → "Comment + verbe"
     3. STANDARDISATION : Grammaire + ponctuation
     """
-    # Étape 0 : Réparation du texte collé
-    etape0 = reparer_texte_colle(qi_championne)
+    # Étape 0 : Sanitizer (nettoyage + décollage)
+    etape0 = _sanitizer.sanitize(qi_championne)
     
     # Étape 1 : Nettoyage (constantes → invariants)
     etape1 = operation_nettoyage(etape0)
@@ -579,7 +637,6 @@ def mue_qi_vers_qc(qi_championne: str) -> str:
     
     # Limiter la longueur si trop long
     if len(result) > 120:
-        # Couper proprement
         result = result[:120].rsplit(' ', 1)[0] + '... ?'
     
     return result
@@ -946,7 +1003,7 @@ def compute_saturation_real(df_atoms) -> 'pd.DataFrame':
     return pd.DataFrame(data)
 
 
-VERSION = "V4.3-MUE-REPAIR-20241224"
+VERSION = "V4.4-SANITIZER-20241224"
 
 
 # =============================================================================
