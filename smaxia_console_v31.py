@@ -132,11 +132,19 @@ with tab_usine:
     if 'df_src' in st.session_state and not st.session_state['df_src'].empty:
         st.markdown(f"### 📥 Sujets Traités ({len(st.session_state['df_src'])})")
         df_view = st.session_state['df_src'].copy()
-        df_view = df_view.rename(columns={"Annee": "Année", "Telechargement": "Lien"})
+        df_view = df_view.rename(columns={"Annee": "Année", "Telechargement": "Sujet", "Corrige": "Corrigé"})
+        
+        # Afficher le tableau avec colonnes Sujet et Corrigé
+        display_cols = ["Fichier", "Nature", "Année", "Sujet", "Corrigé"]
+        if "Corrigé" not in df_view.columns:
+            display_cols = ["Fichier", "Nature", "Année", "Sujet"]
         
         st.data_editor(
-            df_view[["Fichier", "Nature", "Année", "Lien"]], 
-            column_config={"Lien": st.column_config.LinkColumn("Téléchargement", display_text="📥 PDF")},
+            df_view[display_cols], 
+            column_config={
+                "Sujet": st.column_config.LinkColumn("📥 Sujet", display_text="PDF"),
+                "Corrigé": st.column_config.LinkColumn("📝 Corrigé", display_text="PDF"),
+            },
             hide_index=True, 
             use_container_width=True, 
             disabled=True
