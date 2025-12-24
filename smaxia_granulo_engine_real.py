@@ -18,6 +18,7 @@ from __future__ import annotations
 import io
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from collections import Counter, defaultdict
@@ -33,9 +34,12 @@ from bs4 import BeautifulSoup
 # CONFIGURATION [P3-CONFIG: À charger depuis Academic Pack]
 # =============================================================================
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-REQ_TIMEOUT = 25
+REQ_TIMEOUT = 20
 MAX_PDF_MB = 30
 MIN_QI_CHARS = 25
+
+# Parallélisation
+MAX_WORKERS = 10  # Threads simultanés pour téléchargement
 
 # [P3-CONFIG] Sources par pays - France pour test
 SEED_URLS_FRANCE = [
@@ -44,6 +48,17 @@ SEED_URLS_FRANCE = [
     "https://www.apmep.fr/Annee-2023",
     "https://www.apmep.fr/Annales-Terminale-Generale",
 ]
+
+# Session HTTP réutilisable (keep-alive)
+_session = None
+
+def get_session():
+    """Session HTTP avec keep-alive pour performance."""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.headers.update({"User-Agent": UA})
+    return _session
 
 # =============================================================================
 # TAXONOMIES [P3-CONFIG: À charger depuis Academic Pack par pays]
@@ -288,11 +303,13 @@ def scrape_pdf_links_bfs(seed_urls: List[str], limit: int, max_pages: int = 100)
 
 
 # =============================================================================
-# TÉLÉCHARGEMENT PDF
+# TÉLÉCHARGEMENT PDF (AVEC SESSION KEEP-ALIVE)
 # =============================================================================
 def download_pdf(url: str) -> Optional[bytes]:
+    """Télécharge un PDF avec session keep-alive."""
     try:
-        r = requests.get(url, headers={"User-Agent": UA}, timeout=REQ_TIMEOUT, stream=True)
+        session = get_session()
+        r = session.get(url, timeout=REQ_TIMEOUT, stream=True)
         r.raise_for_status()
         
         cl = r.headers.get("Content-Length")
@@ -303,6 +320,80 @@ def download_pdf(url: str) -> Optional[bytes]:
         return data if len(data) <= MAX_PDF_MB * 1024 * 1024 else None
     except Exception:
         return None
+
+
+def download_and_process_subject(item: Dict, chapter_filter: str, matiere: str) -> Optional[Dict]:
+    """
+    Télécharge et traite UN sujet (pour parallélisation).
+    Retourne un dict avec les données ou None si échec.
+    """
+    sujet_url = item["sujet_url"]
+    corrige_url = item["corrige_url"]
+    
+    # Télécharger le sujet
+    pdf_bytes = download_pdf(sujet_url)
+    if not pdf_bytes:
+        return None
+    
+    # Extraction texte (optimisée : 8 pages max d'abord)
+    text = extract_pdf_text(pdf_bytes, max_pages=8)
+    if not text.strip() or len(text) < 150:
+        return None
+    
+    filename = sujet_url.split("/")[-1].split("?")[0]
+    
+    # Pour les PDFs BAC identifiés par nom, être plus permissif
+    is_bac_by_name = any(k in filename.lower() for k in [
+        "bac", "metropole", "polynesie", "asie", "amerique", "spe_", "terminale", "etranger"
+    ])
+    
+    # Validation du contenu
+    if not is_bac_by_name and not is_math_content(text[:2000]):
+        return None
+    
+    nature = detect_nature(filename, text)
+    year = detect_year(filename, text)
+    
+    # Extraction Qi
+    qi_texts, _ = extract_qi_from_text(text, chapter_filter)
+    
+    # Si pas assez de Qi, parser plus de pages
+    if len(qi_texts) < 3 and is_bac_by_name:
+        text_full = extract_pdf_text(pdf_bytes, max_pages=20)
+        qi_texts, _ = extract_qi_from_text(text_full, chapter_filter)
+    
+    # Si toujours pas de Qi avec filtre, essayer sans
+    if not qi_texts and is_bac_by_name and chapter_filter:
+        qi_texts, _ = extract_qi_from_text(text, None)
+    
+    if not qi_texts:
+        return None
+    
+    # Construire les atomes
+    atoms = []
+    qi_data = []
+    for qi_txt in qi_texts:
+        chapter = detect_chapter(qi_txt, matiere) if not chapter_filter else chapter_filter
+        atoms.append({
+            "FRT_ID": None, 
+            "Qi": qi_txt, 
+            "File": filename, 
+            "Year": year, 
+            "Chapitre": chapter
+        })
+        qi_data.append({"Qi": qi_txt, "FRT_ID": None})
+    
+    return {
+        "subject": {
+            "Fichier": filename,
+            "Nature": nature,
+            "Annee": year if year else "N/A",
+            "Telechargement": sujet_url,
+            "Corrige": corrige_url if corrige_url else "Non trouvé",
+            "Qi_Data": qi_data
+        },
+        "atoms": atoms
+    }
 
 
 # =============================================================================
@@ -666,11 +757,12 @@ def cluster_qi_to_qc(qis: List[QiItem], sim_threshold: float = 0.25) -> List[Dic
 
 
 # =============================================================================
-# FONCTION PRINCIPALE D'INGESTION
+# FONCTION PRINCIPALE D'INGESTION (PARALLÉLISÉE)
 # =============================================================================
 def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str = None, progress_callback=None):
     """
-    Ingestion RÉELLE avec BFS récursif, collecte sujets + corrigés.
+    Ingestion RÉELLE avec BFS + téléchargement PARALLÈLE.
+    Objectif: < 30 secondes pour 20 sujets.
     """
     import pandas as pd
     
@@ -689,76 +781,59 @@ def ingest_real(urls: List[str], volume: int, matiere: str, chapter_filter: str 
     if not seeds:
         seeds = SEED_URLS_FRANCE
     
-    # BFS pour collecter sujets + corrigés
-    sujets_corriges, scrape_audit = scrape_pdf_links_bfs(seeds, limit=volume * 2)
+    # Phase 1: BFS pour collecter les URLs (rapide)
+    if progress_callback:
+        progress_callback(0.1)
+    
+    sujets_corriges, _ = scrape_pdf_links_bfs(seeds, limit=volume * 2)
     
     if not sujets_corriges:
         return pd.DataFrame(columns=cols_src), pd.DataFrame(columns=cols_atm)
     
+    # Limiter au volume demandé + marge
+    candidates = sujets_corriges[:volume + 10]
+    
+    if progress_callback:
+        progress_callback(0.2)
+    
+    # Phase 2: Téléchargement et traitement PARALLÈLE
     subjects = []
-    atoms = []
+    all_atoms = []
     processed = 0
     
-    for idx, item in enumerate(sujets_corriges):
-        if processed >= volume:
-            break
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        # Soumettre tous les téléchargements en parallèle
+        future_to_item = {
+            executor.submit(download_and_process_subject, item, chapter_filter, matiere): item 
+            for item in candidates
+        }
         
-        if progress_callback:
-            progress_callback((idx + 1) / len(sujets_corriges))
-        
-        sujet_url = item["sujet_url"]
-        corrige_url = item["corrige_url"]
-        
-        # Télécharger le sujet
-        pdf_bytes = download_pdf(sujet_url)
-        if not pdf_bytes:
-            continue
-        
-        text = extract_pdf_text(pdf_bytes)
-        if not text.strip() or len(text) < 200:
-            continue
-        
-        filename = sujet_url.split("/")[-1].split("?")[0]
-        
-        # Pour les PDFs BAC identifiés par nom, être plus permissif
-        is_bac_by_name = any(k in filename.lower() for k in ["bac", "metropole", "polynesie", "asie", "amerique", "spe_", "terminale"])
-        
-        # Validation du contenu
-        if not is_bac_by_name and not is_math_content(text[:3000]):
-            continue
-        
-        nature = detect_nature(filename, text)
-        year = detect_year(filename, text)
-        
-        qi_texts, qi_audit = extract_qi_from_text(text, chapter_filter)
-        
-        # Si pas de Qi avec filtre, essayer sans filtre pour les BAC
-        if not qi_texts and is_bac_by_name and chapter_filter:
-            qi_texts, _ = extract_qi_from_text(text, None)
-        
-        if not qi_texts:
-            continue
-        
-        qi_data = []
-        for qi_txt in qi_texts:
-            chapter = detect_chapter(qi_txt, matiere) if not chapter_filter else chapter_filter
-            atoms.append({"FRT_ID": None, "Qi": qi_txt, "File": filename, "Year": year, "Chapitre": chapter})
-            qi_data.append({"Qi": qi_txt, "FRT_ID": None})
-        
-        subjects.append({
-            "Fichier": filename,
-            "Nature": nature,
-            "Annee": year if year else "N/A",
-            "Telechargement": sujet_url,
-            "Corrige": corrige_url if corrige_url else "Non trouvé",
-            "Qi_Data": qi_data
-        })
-        
-        processed += 1
+        # Collecter les résultats au fur et à mesure
+        completed = 0
+        for future in as_completed(future_to_item):
+            completed += 1
+            
+            if progress_callback:
+                progress_callback(0.2 + 0.7 * (completed / len(candidates)))
+            
+            if processed >= volume:
+                continue  # On continue pour finir les threads mais on n'ajoute plus
+            
+            try:
+                result = future.result()
+                if result:
+                    subjects.append(result["subject"])
+                    all_atoms.extend(result["atoms"])
+                    processed += 1
+            except Exception:
+                pass
+    
+    if progress_callback:
+        progress_callback(1.0)
     
     return (
         pd.DataFrame(subjects) if subjects else pd.DataFrame(columns=cols_src),
-        pd.DataFrame(atoms) if atoms else pd.DataFrame(columns=cols_atm)
+        pd.DataFrame(all_atoms) if all_atoms else pd.DataFrame(columns=cols_atm)
     )
 
 
@@ -781,28 +856,62 @@ def compute_qc_real(df_atoms) -> 'pd.DataFrame':
 
 
 # =============================================================================
-# SATURATION
+# SATURATION AVEC TRACKING NOUVELLES QC
 # =============================================================================
 def compute_saturation_real(df_atoms) -> 'pd.DataFrame':
+    """
+    Calcule la courbe de saturation avec:
+    - Total QC cumulées
+    - Nouvelles QC à chaque injection
+    - Détection du point de saturation
+    """
     import pandas as pd
     
     if df_atoms.empty:
-        return pd.DataFrame(columns=["Sujets (N)", "QC Découvertes", "Saturation (%)"])
+        return pd.DataFrame(columns=["Sujets (N)", "QC Total", "Nouvelles QC", "Saturation (%)"])
     
     files = df_atoms["File"].unique().tolist()
     data_points = []
-    cumulative = []
+    cumulative_atoms = []
+    seen_qc_signatures = set()
     
     for i, f in enumerate(files):
-        cumulative.extend(df_atoms[df_atoms["File"] == f].to_dict('records'))
-        qis = [QiItem(f"S{j}", r.get("File", ""), r.get("Qi", ""), r.get("Chapitre", ""), r.get("Year")) for j, r in enumerate(cumulative)]
-        n_qc = len(cluster_qi_to_qc(qis))
-        data_points.append({"Sujets (N)": i + 1, "QC Découvertes": n_qc, "Saturation (%)": 0})
+        # Ajouter les atomes du nouveau sujet
+        file_atoms = df_atoms[df_atoms["File"] == f].to_dict('records')
+        cumulative_atoms.extend(file_atoms)
+        
+        # Calculer les QC avec tous les atomes jusqu'ici
+        qis = [
+            QiItem(f"S{j}", r.get("File", ""), r.get("Qi", ""), r.get("Chapitre", ""), r.get("Year")) 
+            for j, r in enumerate(cumulative_atoms)
+        ]
+        
+        qc_list = cluster_qi_to_qc(qis)
+        
+        # Identifier les nouvelles QC (par signature/titre)
+        current_signatures = set()
+        for qc in qc_list:
+            # Signature = premiers 50 chars du titre normalisé
+            sig = normalize_text(qc.get("Titre", ""))[:50]
+            current_signatures.add(sig)
+        
+        new_qc_count = len(current_signatures - seen_qc_signatures)
+        seen_qc_signatures.update(current_signatures)
+        
+        total_qc = len(qc_list)
+        
+        data_points.append({
+            "Sujets (N)": i + 1,
+            "QC Total": total_qc,
+            "Nouvelles QC": new_qc_count,
+            "Saturation (%)": 0
+        })
     
+    # Calculer le % de saturation
     if data_points:
-        max_qc = max(d["QC Découvertes"] for d in data_points)
+        max_qc = max(d["QC Total"] for d in data_points)
         for d in data_points:
-            d["Saturation (%)"] = round((d["QC Découvertes"] / max(max_qc, 1)) * 100, 1)
+            d["Saturation (%)"] = round((d["QC Total"] / max(max_qc, 1)) * 100, 1)
     
     return pd.DataFrame(data_points)
 
@@ -872,4 +981,7 @@ def audit_external_real(pdf_bytes: bytes, qc_df, chapter_filter: str = None) -> 
 # VERSION MARKER - V3.1 POST-AUDIT GPT - 2024-12-24
 # Si vous voyez PV164.pdf, ce fichier N'EST PAS déployé correctement!
 # =============================================================================
-VERSION = "V3.2-CORRIGES-20241224"
+VERSION = "V3.1-AUDIT-GPT-20241224"
+
+# VERSION MARKER
+VERSION = "V3.3-PARALLEL-20241224"
